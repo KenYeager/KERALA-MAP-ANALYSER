@@ -32,63 +32,121 @@ const NavigationMenu = ({
           attributionControl: false,
         });
 
-        // Dark theme tile layer
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        // Use a lighter dark theme for better visibility
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
           maxZoom: 19,
         }).addTo(map);
 
-        // Custom user icon
+        // Custom user icon - larger and more prominent with pulse animation
         const userIcon = L.divIcon({
-          className: 'user-marker',
+          className: 'user-marker-container',
           html: `
-            <div style="
-              width: 24px; 
-              height: 24px; 
-              background: linear-gradient(135deg, #3b82f6, #8b5cf6); 
-              border-radius: 50%; 
-              border: 3px solid white; 
-              box-shadow: 0 2px 10px rgba(59, 130, 246, 0.5);
-              display: flex;
-              align-items: center;
-              justify-content: center;
-            ">
-              <div style="width: 8px; height: 8px; background: white; border-radius: 50%;"></div>
+            <div style="position: relative;">
+              <!-- Pulse ring animation -->
+              <div style="
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                width: 60px;
+                height: 60px;
+                background: rgba(59, 130, 246, 0.3);
+                border-radius: 50%;
+                animation: pulse-ring 2s ease-out infinite;
+              "></div>
+              <!-- Main marker -->
+              <div style="
+                position: relative;
+                width: 36px; 
+                height: 36px; 
+                background: linear-gradient(135deg, #3b82f6, #8b5cf6); 
+                border-radius: 50%; 
+                border: 4px solid white; 
+                box-shadow: 0 4px 20px rgba(59, 130, 246, 0.6);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 1000;
+              ">
+                <div style="width: 12px; height: 12px; background: white; border-radius: 50%;"></div>
+              </div>
+              <!-- Label -->
+              <div style="
+                position: absolute;
+                top: 42px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+                color: white;
+                padding: 4px 10px;
+                border-radius: 12px;
+                font-size: 11px;
+                font-weight: 600;
+                white-space: nowrap;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+                border: 2px solid white;
+              ">📍 YOU</div>
             </div>
           `,
-          iconSize: [24, 24],
-          iconAnchor: [12, 12],
+          iconSize: [36, 36],
+          iconAnchor: [18, 18],
         });
 
-        // Custom station icon
+        // Custom station icon - larger for visibility
         const stationColor = stationType === 'ev' ? '#10b981' : '#ef4444';
         const stationIcon = L.divIcon({
           className: 'station-marker',
           html: `
-            <div style="
-              width: 32px; 
-              height: 32px; 
-              background: linear-gradient(135deg, ${stationColor}, ${stationType === 'ev' ? '#14b8a6' : '#f97316'}); 
-              border-radius: 50%; 
-              border: 3px solid white; 
-              box-shadow: 0 2px 15px ${stationColor}80;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              font-size: 14px;
-            ">
-              ${stationType === 'ev' ? '⚡' : '⛽'}
+            <div style="position: relative;">
+              <!-- Main marker -->
+              <div style="
+                width: 40px; 
+                height: 40px; 
+                background: linear-gradient(135deg, ${stationColor}, ${stationType === 'ev' ? '#14b8a6' : '#f97316'}); 
+                border-radius: 50%; 
+                border: 4px solid white; 
+                box-shadow: 0 4px 20px ${stationColor}90;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 18px;
+              ">
+                ${stationType === 'ev' ? '⚡' : '⛽'}
+              </div>
+              <!-- Label -->
+              <div style="
+                position: absolute;
+                top: 46px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: ${stationType === 'ev' ? 'linear-gradient(135deg, #10b981, #14b8a6)' : 'linear-gradient(135deg, #ef4444, #f97316)'};
+                color: white;
+                padding: 4px 10px;
+                border-radius: 12px;
+                font-size: 11px;
+                font-weight: 600;
+                white-space: nowrap;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+                border: 2px solid white;
+              ">🏁 DESTINATION</div>
             </div>
           `,
-          iconSize: [32, 32],
-          iconAnchor: [16, 16],
+          iconSize: [40, 40],
+          iconAnchor: [20, 20],
         });
 
-        // Add markers
-        const userMarker = L.marker([userLocation[0], userLocation[1]], { icon: userIcon })
-          .bindPopup('<strong style="color: #333;">Your Location</strong>')
+        // Add markers with higher z-index
+        const userMarker = L.marker([userLocation[0], userLocation[1]], { 
+          icon: userIcon,
+          zIndexOffset: 1000 
+        })
+          .bindPopup('<strong style="color: #333;">Your Location (Start)</strong>')
           .addTo(map);
 
-        const stationMarker = L.marker([nearestStation.lat, nearestStation.lng], { icon: stationIcon })
+        const stationMarker = L.marker([nearestStation.lat, nearestStation.lng], { 
+          icon: stationIcon,
+          zIndexOffset: 900
+        })
           .bindPopup(`
             <div style="color: #333;">
               <strong>${nearestStation.name || (stationType === 'ev' ? 'EV Station' : 'Petrol Station')}</strong>
@@ -97,36 +155,38 @@ const NavigationMenu = ({
           `)
           .addTo(map);
 
-        // Draw route line with animation effect
+        // Draw route line - more visible
         const routeLine = L.polyline(
           [[userLocation[0], userLocation[1]], [nearestStation.lat, nearestStation.lng]],
           {
             color: stationType === 'ev' ? '#10b981' : '#ef4444',
-            weight: 4,
-            opacity: 0.8,
-            dashArray: '12, 8',
+            weight: 6,
+            opacity: 0.9,
+            dashArray: '15, 10',
             lineCap: 'round',
           }
         ).addTo(map);
 
-        // Add animated dashed overlay
-        const animatedLine = L.polyline(
+        // Add white border line for contrast
+        const borderLine = L.polyline(
           [[userLocation[0], userLocation[1]], [nearestStation.lat, nearestStation.lng]],
           {
             color: 'white',
-            weight: 2,
-            opacity: 0.5,
-            dashArray: '8, 16',
-            dashOffset: '0',
+            weight: 10,
+            opacity: 0.4,
+            lineCap: 'round',
           }
         ).addTo(map);
+        
+        // Bring route line to front
+        routeLine.bringToFront();
 
-        // Fit bounds to show both markers
+        // Fit bounds to show both markers with more padding
         const bounds = L.latLngBounds([
           [userLocation[0], userLocation[1]],
           [nearestStation.lat, nearestStation.lng],
         ]);
-        map.fitBounds(bounds, { padding: [40, 40] });
+        map.fitBounds(bounds, { padding: [80, 80] });
 
         miniMapInstanceRef.current = map;
       });
