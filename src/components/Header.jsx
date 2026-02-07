@@ -9,6 +9,9 @@ import {
   Grid3x3,
   Flame,
   Users,
+  Plug,
+  TrendingUp,
+  Target,
 } from "lucide-react";
 
 const Header = ({
@@ -28,6 +31,11 @@ const Header = ({
   onToggleHeatMap,
   showDensityLayer,
   onToggleDensityLayer,
+  showSubstationsLayer,
+  onToggleSubstationsLayer,
+  showAdoptionLayer,
+  onToggleAdoptionLayer,
+  onFindOptimalLocations,
 }) => (
   <div className="bg-white border-b border-gray-200 px-6 py-4 shadow-sm">
     <div className="flex items-center justify-between">
@@ -108,6 +116,32 @@ const Header = ({
         )}
         {hasPolygon && (
           <button
+            onClick={onToggleSubstationsLayer}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors font-medium ${
+              showSubstationsLayer
+                ? "bg-purple-600 text-white hover:bg-purple-700"
+                : "bg-white text-gray-700 hover:bg-gray-100"
+            }`}
+          >
+            <Plug size={16} />
+            {showSubstationsLayer ? "Substations ON" : "Substations OFF"}
+          </button>
+        )}
+        {hasPolygon && (
+          <button
+            onClick={onToggleAdoptionLayer}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors font-medium ${
+              showAdoptionLayer
+                ? "bg-amber-600 text-white hover:bg-amber-700"
+                : "bg-white text-gray-700 hover:bg-gray-100"
+            }`}
+          >
+            <TrendingUp size={16} />
+            {showAdoptionLayer ? "Adoption ON" : "Adoption OFF"}
+          </button>
+        )}
+        {hasPolygon && (
+          <button
             onClick={onToggleHeatMap}
             className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors font-medium ${
               showHeatMap
@@ -121,6 +155,13 @@ const Header = ({
         )}
         {hasPolygon && (
           <>
+            <button
+              onClick={onFindOptimalLocations}
+              className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors font-medium"
+            >
+              <Target size={18} />
+              Find Optimal Locations
+            </button>
             <button
               onClick={onClear}
               className="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors font-medium"
