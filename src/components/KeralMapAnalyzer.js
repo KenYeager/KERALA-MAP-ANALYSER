@@ -6,6 +6,7 @@ import MapView from './MapView';
 import StatsPanel from './StatsPanel';
 import OptimalLocationModal from './OptimalLocationModal';
 import RegionSelector from './RegionSelector';
+import NavigationMenu from './NavigationMenu';
 import {
   generateStats,
   fetchStationsFromDB,
@@ -55,6 +56,15 @@ const KeralMapAnalyzer = () => {
   const substationsLayerRef = useRef(null);
   const adoptionLayerRef = useRef(null);
   const optimalLocationsLayerRef = useRef(null);
+
+  // Navigation menu state
+  const [isNavigationOpen, setIsNavigationOpen] = useState(false);
+  const [isLocating, setIsLocating] = useState(false);
+  const [userLocation, setUserLocation] = useState(null);
+  const [nearestStation, setNearestStation] = useState(null);
+  const [stationType, setStationType] = useState(null);
+  const navigationMarkerRef = useRef(null);
+  const navigationLineRef = useRef(null);
 
   useEffect(() => {
     const mapInstance = L.map(mapRef.current).setView([10.8505, 76.2711], 8);
@@ -122,6 +132,31 @@ const KeralMapAnalyzer = () => {
       setPolygon(null);
     }
     setStats(null);
+    
+    // Hide all EV and petrol station markers when drawing starts
+    if (allEVStationsLayerRef.current) {
+      allEVStationsLayerRef.current.remove();
+      allEVStationsLayerRef.current = null;
+    }
+    if (allPetrolStationsLayerRef.current) {
+      allPetrolStationsLayerRef.current.remove();
+      allPetrolStationsLayerRef.current = null;
+    }
+    setShowAllEVStations(false);
+    setShowAllPetrolStations(false);
+    
+    // Clear navigation markers when drawing starts
+    if (navigationMarkerRef.current) {
+      navigationMarkerRef.current.remove();
+      navigationMarkerRef.current = null;
+    }
+    if (navigationLineRef.current) {
+      navigationLineRef.current.remove();
+      navigationLineRef.current = null;
+    }
+    setIsNavigationOpen(false);
+    setNearestStation(null);
+    setUserLocation(null);
   };
 
   const handleMapClick = (e) => {
@@ -259,6 +294,224 @@ const KeralMapAnalyzer = () => {
       setShowDensityLayer(false);
       setShowSubstationsLayer(false);
       setShowAdoptionLayer(false);
+    }
+  };
+
+  /**
+   * Reset to initial screen - clears everything and returns to initial map view
+   */
+  const handleReset = () => {
+    // Clear polygon and all layers
+    clearPolygon();
+    
+    // Clear optimal locations
+    if (optimalLocationsLayerRef.current) {
+      optimalLocationsLayerRef.current.remove();
+      optimalLocationsLayerRef.current = null;
+    }
+    removeLegend();
+    setOptimalLocations(null);
+    setShowRegionSelector(false);
+    setSelectedRegionIndex(0);
+    
+    // Clear navigation markers
+    if (navigationMarkerRef.current) {
+      navigationMarkerRef.current.remove();
+      navigationMarkerRef.current = null;
+    }
+    if (navigationLineRef.current) {
+      navigationLineRef.current.remove();
+      navigationLineRef.current = null;
+    }
+    
+    // Reset map view to Kerala
+    if (map) {
+      map.setView([10.8505, 76.2711], 8);
+    }
+  };
+
+  /**
+   * Open navigation menu
+   */
+  const handleOpenNavigation = () => {
+    setIsNavigationOpen(true);
+    setNearestStation(null);
+    setUserLocation(null);
+    setStationType(null);
+  };
+
+  /**
+   * Close navigation menu and clear navigation markers
+   */
+  const handleCloseNavigation = () => {
+    setIsNavigationOpen(false);
+    setNearestStation(null);
+    setUserLocation(null);
+    setStationType(null);
+    
+    // Clear navigation markers from map
+    if (navigationMarkerRef.current) {
+      navigationMarkerRef.current.remove();
+      navigationMarkerRef.current = null;
+    }
+    if (navigationLineRef.current) {
+      navigationLineRef.current.remove();
+      navigationLineRef.current = null;
+    }
+  };
+
+  /**
+   * Calculate distance using Haversine formula
+   */
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371; // Earth's radius in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
+
+  /**
+   * Navigate to nearest station of the given type
+   */
+  const handleNavigateToStation = async (type) => {
+    setStationType(type);
+    setIsLocating(true);
+    setNearestStation(null);
+
+    try {
+      // Get user's current location
+      const position = await new Promise((resolve, reject) => {
+        if (!navigator.geolocation) {
+          reject(new Error('Geolocation is not supported by your browser'));
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0
+        });
+      });
+
+      const userLat = position.coords.latitude;
+      const userLng = position.coords.longitude;
+      setUserLocation([userLat, userLng]);
+
+      // Fetch all stations of the given type
+      let stations;
+      if (type === 'ev') {
+        stations = await fetchAllEVStations();
+      } else {
+        stations = await fetchAllPetrolStations();
+      }
+
+      if (!stations || stations.length === 0) {
+        alert(`No ${type === 'ev' ? 'EV charging' : 'petrol'} stations found in database.`);
+        setIsLocating(false);
+        return;
+      }
+
+      // Find the nearest station
+      let nearestDist = Infinity;
+      let nearest = null;
+
+      stations.forEach(station => {
+        const dist = calculateDistance(userLat, userLng, station.lat, station.lng);
+        if (dist < nearestDist) {
+          nearestDist = dist;
+          nearest = { ...station, distance: dist };
+        }
+      });
+
+      if (nearest) {
+        setNearestStation(nearest);
+
+        // Clear old markers
+        if (navigationMarkerRef.current) {
+          navigationMarkerRef.current.remove();
+        }
+        if (navigationLineRef.current) {
+          navigationLineRef.current.remove();
+        }
+
+        // Add markers and line to map
+        const userIcon = L.divIcon({
+          className: 'user-location-marker',
+          html: `<div style="width: 20px; height: 20px; background: linear-gradient(135deg, #3b82f6, #8b5cf6); border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 10px rgba(59, 130, 246, 0.5);"></div>`,
+          iconSize: [20, 20],
+          iconAnchor: [10, 10]
+        });
+
+        const stationIcon = L.divIcon({
+          className: 'station-marker',
+          html: `<div style="width: 24px; height: 24px; background: linear-gradient(135deg, ${type === 'ev' ? '#10b981, #14b8a6' : '#ef4444, #f97316'}); border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 10px ${type === 'ev' ? 'rgba(16, 185, 129, 0.5)' : 'rgba(239, 68, 68, 0.5)'}; display: flex; align-items: center; justify-content: center;"><span style="color: white; font-size: 12px;">⚡</span></div>`,
+          iconSize: [24, 24],
+          iconAnchor: [12, 12]
+        });
+
+        const layerGroup = L.layerGroup();
+
+        // User marker
+        const userMarker = L.marker([userLat, userLng], { icon: userIcon })
+          .bindPopup('<strong>Your Location</strong>');
+        layerGroup.addLayer(userMarker);
+
+        // Station marker
+        const stationMarker = L.marker([nearest.lat, nearest.lng], { icon: stationIcon })
+          .bindPopup(`<strong>${nearest.name || (type === 'ev' ? 'EV Station' : 'Petrol Station')}</strong><br/>Distance: ${nearest.distance.toFixed(2)} km`);
+        layerGroup.addLayer(stationMarker);
+
+        // Draw dashed line
+        const line = L.polyline(
+          [[userLat, userLng], [nearest.lat, nearest.lng]],
+          { 
+            color: type === 'ev' ? '#10b981' : '#ef4444',
+            weight: 3,
+            dashArray: '10, 10',
+            opacity: 0.8
+          }
+        );
+        layerGroup.addLayer(line);
+
+        layerGroup.addTo(map);
+        navigationMarkerRef.current = layerGroup;
+
+        // Fit map to show both markers
+        const bounds = L.latLngBounds([
+          [userLat, userLng],
+          [nearest.lat, nearest.lng]
+        ]);
+        map.fitBounds(bounds, { padding: [50, 50] });
+      }
+
+      setIsLocating(false);
+    } catch (error) {
+      console.error('Error getting location:', error);
+      alert('Could not get your location. Please enable location services and try again.');
+      setIsLocating(false);
+    }
+  };
+
+  /**
+   * Go back in navigation menu (clear result)
+   */
+  const handleNavigationBack = () => {
+    setNearestStation(null);
+    setStationType(null);
+    
+    // Clear navigation markers
+    if (navigationMarkerRef.current) {
+      navigationMarkerRef.current.remove();
+      navigationMarkerRef.current = null;
+    }
+    
+    // Reset map view
+    if (map) {
+      map.setView([10.8505, 76.2711], 8);
     }
   };
 
@@ -818,6 +1071,20 @@ const KeralMapAnalyzer = () => {
         showAdoptionLayer={showAdoptionLayer}
         onToggleAdoptionLayer={handleToggleAdoptionLayer}
         onFindOptimalLocations={handleFindOptimalLocations}
+        onOpenNavigation={handleOpenNavigation}
+        onReset={handleReset}
+      />
+
+      {/* Navigation Menu */}
+      <NavigationMenu
+        isOpen={isNavigationOpen}
+        onClose={handleCloseNavigation}
+        onNavigateToStation={handleNavigateToStation}
+        isLocating={isLocating}
+        userLocation={userLocation}
+        nearestStation={nearestStation}
+        stationType={stationType}
+        onBack={handleNavigationBack}
       />
 
       {/* Main content with top padding for fixed header */}

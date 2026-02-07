@@ -13,6 +13,8 @@ import {
   TrendingUp,
   Target,
   Pencil,
+  Navigation,
+  Home,
 } from "lucide-react";
 
 const ToolButton = ({ active, onClick, icon: Icon, label, variant = "default" }) => {
@@ -68,6 +70,8 @@ const Header = ({
   showAdoptionLayer,
   onToggleAdoptionLayer,
   onFindOptimalLocations,
+  onOpenNavigation,
+  onReset,
 }) => (
   <div className="fixed top-0 left-0 right-0 z-50">
     {/* Top Bar with branding and main actions */}
@@ -88,6 +92,14 @@ const Header = ({
         <div className="flex items-center gap-2">
           {!drawing ? (
             <>
+              <button
+                onClick={onOpenNavigation}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-medium text-sm shadow-lg shadow-blue-500/30 hover:shadow-blue-500/50 transition-all duration-200"
+              >
+                <Navigation size={16} />
+                <span className="hidden sm:inline">Navigate</span>
+              </button>
+
               <button
                 onClick={onStartDrawing}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-500 to-indigo-500 text-white font-medium text-sm shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50 transition-all duration-200"
@@ -146,6 +158,14 @@ const Header = ({
               >
                 <Download size={16} />
                 <span className="hidden sm:inline">Export</span>
+              </button>
+
+              <button
+                onClick={onReset}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 text-gray-300 font-medium text-sm border border-white/10 hover:bg-white/10 hover:text-white transition-all duration-200"
+                title="Return to Home"
+              >
+                <Home size={16} />
               </button>
 
               <button

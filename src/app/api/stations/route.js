@@ -45,12 +45,22 @@ export async function POST(request) {
 
         const database = await getDb();
 
-        const query = `
-          SELECT latitude, longitude, "status_code", "access_code"
-          FROM ev_stations
-          WHERE latitude BETWEEN ? AND ?
-        AND longitude BETWEEN ? AND ?;
-    `;
+        let query;
+        if (type === 'petrol') {
+            query = `
+              SELECT latitude, longitude, name, operator, brand
+              FROM petrol_stations
+              WHERE latitude BETWEEN ? AND ?
+              AND longitude BETWEEN ? AND ?;
+            `;
+        } else {
+            query = `
+              SELECT latitude, longitude, "status_code", "access_code"
+              FROM ev_stations
+              WHERE latitude BETWEEN ? AND ?
+              AND longitude BETWEEN ? AND ?;
+            `;
+        }
 
         const stations = await database.all(query, [minLat, maxLat, minLng, maxLng]);
 
