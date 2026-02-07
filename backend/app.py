@@ -1,7 +1,7 @@
 """
 Flask API for finding optimal EV charging station locations
 Uses spatial indexing and numpy for fast computation
-with ITERATIVE BENEFIT MAXIMIZATION and COST MAP UPDATES
+with DIVIDE-AND-CONQUER by heat map color zones (GREEN → YELLOW → RED)
 """
 
 from flask import Flask, request, jsonify
@@ -14,10 +14,16 @@ import math
 app = Flask(__name__)
 CORS(app)  # Enable CORS for Next.js frontend
 
+# Color zone thresholds based on heat map
+# Cost range: -100 (green) → 0 (yellow) → 100 (red)
+GREEN_THRESHOLD = -33   # cost <= -33 is green (favorable)
+YELLOW_THRESHOLD = 33   # cost <= 33 is yellow (neutral), > 33 is red
+
 
 class OptimalLocationFinder:
     """
-    Find optimal EV charging station locations by identifying LOWEST-COST REGIONS
+    Find optimal EV charging station locations using DIVIDE-AND-CONQUER
+    by heat map color zones: GREEN (best) → YELLOW → RED (worst)
     """
 
     def __init__(self, cells, n_stations=3, min_distance_km=0.5):
@@ -33,11 +39,28 @@ class OptimalLocationFinder:
         self.polygon_cells = [c for c in cells if c.get('inPolygon', False)]
         self.n_stations = n_stations
         self.min_distance_km = min_distance_km
+        
+        # Partition cells by color zone for divide-and-conquer
+        self.green_cells = []
+        self.yellow_cells = []
+        self.red_cells = []
+        
+        for cell in self.polygon_cells:
+            cost = cell.get('cost', 0)
+            if cost <= GREEN_THRESHOLD:
+                self.green_cells.append(cell)
+            elif cost <= YELLOW_THRESHOLD:
+                self.yellow_cells.append(cell)
+            else:
+                self.red_cells.append(cell)
 
         if not self.polygon_cells:
             raise ValueError("No cells found inside polygon")
 
         print(f"✓ Initialized with {len(self.polygon_cells)} cells in polygon")
+        print(f"  🟢 GREEN zone (cost ≤ {GREEN_THRESHOLD}): {len(self.green_cells)} cells")
+        print(f"  🟡 YELLOW zone ({GREEN_THRESHOLD} < cost ≤ {YELLOW_THRESHOLD}): {len(self.yellow_cells)} cells")
+        print(f"  🔴 RED zone (cost > {YELLOW_THRESHOLD}): {len(self.red_cells)} cells")
 
     def haversine_distance(self, lat1, lon1, lat2, lon2):
         """Calculate distance in km using Haversine formula"""
@@ -54,8 +77,8 @@ class OptimalLocationFinder:
 
     def find_connected_regions(self, cells):
         """
-        Split cells into spatially connected groups using flood-fill algorithm.
-        Two cells are connected if they are adjacent (neighbors in the grid).
+        Split cells into spatially connected groups using OPTIMIZED flood-fill.
+        Uses hash-based neighbor lookup for O(n) instead of O(n²).
         
         Args:
             cells: List of cells to group
@@ -67,9 +90,7 @@ class OptimalLocationFinder:
             return []
         
         # Determine grid spacing from actual data
-        # Sample a few cells to estimate spacing
         if len(cells) >= 2:
-            # Sort by latitude to find adjacent cells
             sorted_cells = sorted(cells, key=lambda c: (c['centerLat'], c['centerLng']))
             lat_diffs = []
             lng_diffs = []
@@ -82,52 +103,65 @@ class OptimalLocationFinder:
                 if lng_diff > 0:
                     lng_diffs.append(lng_diff)
             
-            # Use median spacing
             grid_spacing = min(
                 np.median(lat_diffs) if lat_diffs else 0.0005,
                 np.median(lng_diffs) if lng_diffs else 0.0005
             )
         else:
-            grid_spacing = 0.0005  # Default ~50 meters
+            grid_spacing = 0.0005
         
-        # Allow 1.5x spacing for diagonal adjacency
-        adjacency_threshold = grid_spacing * 1.5
+        # Use grid-based indexing for O(1) neighbor lookup
+        # Round coordinates to grid keys
+        precision = int(-math.log10(grid_spacing)) + 1  # Decimal precision
         
-        print(f"  Grid spacing detected: {grid_spacing:.6f} degrees (~{grid_spacing * 111:.0f}m)")
-        print(f"  Adjacency threshold: {adjacency_threshold:.6f} degrees")
+        def grid_key(lat, lng):
+            """Create a grid key by rounding to grid precision"""
+            return (round(lat, precision), round(lng, precision))
+        
+        # Build cell lookup dictionary
+        cell_map = {}
+        for cell in cells:
+            key = grid_key(cell['centerLat'], cell['centerLng'])
+            cell_map[key] = cell
+        
+        # 8-directional neighbor offsets (includes diagonals)
+        neighbor_offsets = [
+            (-grid_spacing, 0), (grid_spacing, 0),      # N, S
+            (0, -grid_spacing), (0, grid_spacing),      # W, E
+            (-grid_spacing, -grid_spacing), (-grid_spacing, grid_spacing),  # NW, NE
+            (grid_spacing, -grid_spacing), (grid_spacing, grid_spacing)     # SW, SE
+        ]
         
         visited = set()
         regions = []
         
         for cell in cells:
-            cell_key = (cell['centerLat'], cell['centerLng'])
-            if cell_key in visited:
+            start_key = grid_key(cell['centerLat'], cell['centerLng'])
+            if start_key in visited:
                 continue
             
-            # Start new region with flood-fill
+            # Flood-fill using hash-based neighbor lookup
             region = []
-            stack = [cell]
+            stack = [start_key]
             
             while stack:
-                current = stack.pop()
-                current_key = (current['centerLat'], current['centerLng'])
+                current_key = stack.pop()
                 
                 if current_key in visited:
                     continue
                 
-                visited.add(current_key)
-                region.append(current)
+                if current_key not in cell_map:
+                    continue
                 
-                # Find adjacent neighbors
-                for other in cells:
-                    other_key = (other['centerLat'], other['centerLng'])
-                    if other_key not in visited:
-                        lat_diff = abs(current['centerLat'] - other['centerLat'])
-                        lng_diff = abs(current['centerLng'] - other['centerLng'])
-                        
-                        # Adjacent if within threshold (allows diagonals)
-                        if lat_diff <= adjacency_threshold and lng_diff <= adjacency_threshold:
-                            stack.append(other)
+                visited.add(current_key)
+                region.append(cell_map[current_key])
+                
+                # Check 8 neighbors using offset calculation
+                lat, lng = current_key
+                for dlat, dlng in neighbor_offsets:
+                    neighbor_key = grid_key(lat + dlat, lng + dlng)
+                    if neighbor_key in cell_map and neighbor_key not in visited:
+                        stack.append(neighbor_key)
             
             if region:
                 regions.append(region)
@@ -136,103 +170,129 @@ class OptimalLocationFinder:
 
     def find_optimal_locations(self):
         """
-        Find optimal regions by identifying cells with LOWEST cost values
+        Find optimal regions using DIVIDE-AND-CONQUER by color zones
         
         Algorithm:
-        1. Sort cells by cost (ascending - lowest cost first)
-        2. For each cost rank requested:
-           a. Find all cells with the minimum cost
-           b. Split into connected regions (sub-locations)
-           c. Remove those cells from available pool (NOT distance-based)
-        3. Return N cost ranks, each with potentially multiple sub-locations
+        1. Start with GREEN zone cells (lowest cost, most favorable)
+        2. Process cells by cost rank within the zone
+        3. If N ranks found, STOP (don't compute other zones)
+        4. If more ranks needed, move to YELLOW zone
+        5. If still more needed, move to RED zone
+        
+        This is much faster because we only process cells in favorable zones
+        and skip red zones entirely if green/yellow have enough locations.
         """
-        print(f"\n=== FINDING {self.n_stations} OPTIMAL COST RANKS ===")
-        print("Strategy: Identify regions with LOWEST cost (best for EV adoption)\n")
+        print(f"\n=== DIVIDE-AND-CONQUER: FINDING {self.n_stations} OPTIMAL COST RANKS ===")
+        print("Strategy: GREEN zones first → YELLOW if needed → RED only if required\n")
 
         optimal_ranks = []  # List of cost ranks, each with sub-locations
         used_cell_keys = set()  # Track cells that have been assigned to a rank
-
-        for rank_num in range(self.n_stations):
-            # Get available cells (not yet used)
-            available_cells = [
-                cell for cell in self.polygon_cells 
-                if (cell['centerLat'], cell['centerLng']) not in used_cell_keys
-            ]
-            
-            if not available_cells:
-                print(f"⚠ No more available cells for rank {rank_num + 1}")
-                break
-
-            print(f"\n--- Cost Rank {rank_num + 1}/{self.n_stations} ---")
-            print(f"Available cells: {len(available_cells)}")
-
-            # Find minimum cost among available cells
-            min_cost = min(cell['cost'] for cell in available_cells)
-            
-            # Get ALL cells with this minimum cost
-            min_cost_cells = [cell for cell in available_cells if cell['cost'] == min_cost]
-            
-            print(f"Minimum cost found: {min_cost:.2f}")
-            print(f"Cells with this cost: {len(min_cost_cells)}")
-
-            # Mark these cells as used
-            for cell in min_cost_cells:
-                used_cell_keys.add((cell['centerLat'], cell['centerLng']))
-
-            # Split into spatially connected regions (sub-locations)
-            connected_regions = self.find_connected_regions(min_cost_cells)
-            print(f"Connected sub-regions found: {len(connected_regions)}")
-
-            # Create sub-locations for this cost rank
-            sub_locations = []
-            for i, region_cells in enumerate(connected_regions):
-                # Calculate bounds for this specific connected region
-                lats = [cell['centerLat'] for cell in region_cells]
-                lngs = [cell['centerLng'] for cell in region_cells]
+        
+        # Process zones in order: GREEN → YELLOW → RED
+        zones = [
+            ('🟢 GREEN', self.green_cells),
+            ('🟡 YELLOW', self.yellow_cells),
+            ('🔴 RED', self.red_cells)
+        ]
+        
+        for zone_name, zone_cells in zones:
+            if len(optimal_ranks) >= self.n_stations:
+                print(f"\n✓ Already found {self.n_stations} ranks - SKIPPING {zone_name} zone")
+                continue
                 
-                sub_location = {
-                    'subIndex': i,
-                    'type': 'region',
-                    'cellCount': len(region_cells),
-                    'cells': [
-                        {
-                            'lat': float(cell['centerLat']),
-                            'lng': float(cell['centerLng']),
-                            'cost': float(cell['cost'])
-                        }
-                        for cell in region_cells
-                    ],
-                    'bounds': {
-                        'minLat': float(min(lats)),
-                        'maxLat': float(max(lats)),
-                        'minLng': float(min(lngs)),
-                        'maxLng': float(max(lngs))
-                    },
-                    'avgDensity': float(np.mean([cell.get('density', 0) for cell in region_cells])),
-                    'avgNearestStation': float(np.mean([cell.get('nearestStationDistance', 0) for cell in region_cells])),
-                    # Calculate centroid
-                    'latitude': float(sum(lats) / len(lats)),
-                    'longitude': float(sum(lngs) / len(lngs))
-                }
-                sub_locations.append(sub_location)
-                print(f"  Sub-location {i + 1}: {len(region_cells)} cells")
-
-            # Create the cost rank object
-            cost_rank = {
-                'costRank': rank_num + 1,
-                'cost': float(min_cost),
-                'subLocationCount': len(sub_locations),
-                'totalCellCount': len(min_cost_cells),
-                'subLocations': sub_locations
-            }
-            optimal_ranks.append(cost_rank)
+            if not zone_cells:
+                print(f"\n⚠ {zone_name} zone is empty - skipping")
+                continue
             
-            print(f"  Total cells used so far: {len(used_cell_keys)}")
+            print(f"\n{'='*50}")
+            print(f"PROCESSING {zone_name} ZONE ({len(zone_cells)} cells)")
+            print(f"{'='*50}")
+            
+            # Process this zone until we have enough ranks or run out of cells
+            zone_available = [c for c in zone_cells if (c['centerLat'], c['centerLng']) not in used_cell_keys]
+            
+            while zone_available and len(optimal_ranks) < self.n_stations:
+                rank_num = len(optimal_ranks)
+                
+                print(f"\n--- Cost Rank {rank_num + 1}/{self.n_stations} (from {zone_name}) ---")
+                print(f"Available cells in zone: {len(zone_available)}")
 
-        print(f"\n✓ FOUND {len(optimal_ranks)} COST RANKS")
+                # Find minimum cost among available cells in this zone
+                min_cost = min(cell['cost'] for cell in zone_available)
+                
+                # Get ALL cells with this minimum cost
+                min_cost_cells = [cell for cell in zone_available if cell['cost'] == min_cost]
+                
+                print(f"Minimum cost found: {min_cost:.2f}")
+                print(f"Cells with this cost: {len(min_cost_cells)}")
+
+                # Mark these cells as used
+                for cell in min_cost_cells:
+                    used_cell_keys.add((cell['centerLat'], cell['centerLng']))
+
+                # Split into spatially connected regions (sub-locations)
+                connected_regions = self.find_connected_regions(min_cost_cells)
+                print(f"Connected sub-regions found: {len(connected_regions)}")
+
+                # Create sub-locations for this cost rank
+                sub_locations = []
+                for i, region_cells in enumerate(connected_regions):
+                    # Calculate bounds for this specific connected region
+                    lats = [cell['centerLat'] for cell in region_cells]
+                    lngs = [cell['centerLng'] for cell in region_cells]
+                    
+                    sub_location = {
+                        'subIndex': i,
+                        'type': 'region',
+                        'cellCount': len(region_cells),
+                        'cells': [
+                            {
+                                'lat': float(cell['centerLat']),
+                                'lng': float(cell['centerLng']),
+                                'cost': float(cell['cost'])
+                            }
+                            for cell in region_cells
+                        ],
+                        'bounds': {
+                            'minLat': float(min(lats)),
+                            'maxLat': float(max(lats)),
+                            'minLng': float(min(lngs)),
+                            'maxLng': float(max(lngs))
+                        },
+                        'avgDensity': float(np.mean([cell.get('density', 0) for cell in region_cells])),
+                        'avgNearestStation': float(np.mean([cell.get('nearestStationDistance', 0) for cell in region_cells])),
+                        # Calculate centroid
+                        'latitude': float(sum(lats) / len(lats)),
+                        'longitude': float(sum(lngs) / len(lngs))
+                    }
+                    sub_locations.append(sub_location)
+                    print(f"  Sub-location {i + 1}: {len(region_cells)} cells")
+
+                # Create the cost rank object
+                cost_rank = {
+                    'costRank': rank_num + 1,
+                    'cost': float(min_cost),
+                    'zone': zone_name,
+                    'subLocationCount': len(sub_locations),
+                    'totalCellCount': len(min_cost_cells),
+                    'subLocations': sub_locations
+                }
+                optimal_ranks.append(cost_rank)
+                
+                print(f"  ✓ Rank {rank_num + 1} complete - Total cells used: {len(used_cell_keys)}")
+                
+                # Update available cells for next iteration
+                zone_available = [c for c in zone_cells if (c['centerLat'], c['centerLng']) not in used_cell_keys]
+
+        print(f"\n{'='*50}")
+        print(f"✓ FOUND {len(optimal_ranks)} COST RANKS")
         total_sub_locs = sum(r['subLocationCount'] for r in optimal_ranks)
         print(f"Total sub-locations: {total_sub_locs}")
         print(f"Total cells in optimal regions: {sum(r['totalCellCount'] for r in optimal_ranks)}")
+        
+        # Report which zones were used
+        zones_used = set(r.get('zone', 'unknown') for r in optimal_ranks)
+        print(f"Zones used: {', '.join(zones_used)}")
         
         return optimal_ranks
 
