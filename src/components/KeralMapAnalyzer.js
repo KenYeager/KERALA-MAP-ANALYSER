@@ -12,7 +12,8 @@ import {
   generateGridCells,
   visualizeGridCells,
   pointInPolygon,
-  calculateChargingStationProximityCost
+  calculateChargingStationProximityCost,
+  plotAllStations
 } from '../utils/mapUtils';
 import { generateHeatMapLayer, addHeatMapLegend } from '../utils/heatMapLayer';
 import { fetchPopulationDensityData, calculatePopulationDensityCost } from '../utils/populationDensityLayer';
@@ -20,6 +21,7 @@ import { fetchSubstationsData, calculateSubstationsCost, plotSubstationsOnMap } 
 import { fetchAdoptionLikelihoodData, calculateAdoptionLikelihoodCost, plotAdoptionCentersOnMap } from '../utils/adoptionLikelihoodLayer';
 import { plotOptimalLocations, groupLocationsByCost, zoomToRegion, removeLegend, REGION_COLORS } from '../utils/optimalLocationFinder';
 import { findOptimalLocationsAPI, checkBackendHealth } from '../utils/optimalLocationFinderAPI';
+import { fetchAllEVStations, fetchAllPetrolStations } from '../utils/stationsAPI';
 
 const KeralMapAnalyzer = () => {
   const mapRef = useRef(null);
@@ -32,6 +34,10 @@ const KeralMapAnalyzer = () => {
   const [showPetrol, setShowPetrol] = useState(false);
   const [chargingLayer, setChargingLayer] = useState(null);
   const [petrolLayer, setPetrolLayer] = useState(null);
+  const [showAllEVStations, setShowAllEVStations] = useState(false);
+  const [showAllPetrolStations, setShowAllPetrolStations] = useState(false);
+  const allEVStationsLayerRef = useRef(null);
+  const allPetrolStationsLayerRef = useRef(null);
   const [gridLayer, setGridLayer] = useState(null);
   const [showGrid, setShowGrid] = useState(false);
   const [showHeatMap, setShowHeatMap] = useState(false);
@@ -284,6 +290,68 @@ const KeralMapAnalyzer = () => {
       if (petrolLayer) { petrolLayer.remove(); setPetrolLayer(null); }
     } else {
       await plotMarkersFromDB('petrol');
+    }
+  };
+
+  const handleToggleAllEVStations = async () => {
+    const next = !showAllEVStations;
+    setShowAllEVStations(next);
+
+    if (!next) {
+      if (allEVStationsLayerRef.current) {
+        allEVStationsLayerRef.current.remove();
+        allEVStationsLayerRef.current = null;
+      }
+    } else {
+      try {
+        const stations = await fetchAllEVStations();
+        if (stations.length === 0) {
+          alert('No EV charging stations found in Kerala database.');
+          setShowAllEVStations(false);
+          return;
+        }
+
+        if (allEVStationsLayerRef.current) {
+          allEVStationsLayerRef.current.remove();
+        }
+
+        allEVStationsLayerRef.current = plotAllStations(map, stations, 'ev');
+      } catch (error) {
+        console.error('Error loading EV stations:', error);
+        alert('Failed to load EV stations. Please make sure the backend is running.');
+        setShowAllEVStations(false);
+      }
+    }
+  };
+
+  const handleToggleAllPetrolStations = async () => {
+    const next = !showAllPetrolStations;
+    setShowAllPetrolStations(next);
+
+    if (!next) {
+      if (allPetrolStationsLayerRef.current) {
+        allPetrolStationsLayerRef.current.remove();
+        allPetrolStationsLayerRef.current = null;
+      }
+    } else {
+      try {
+        const stations = await fetchAllPetrolStations();
+        if (stations.length === 0) {
+          alert('No petrol stations found in Kerala database.');
+          setShowAllPetrolStations(false);
+          return;
+        }
+
+        if (allPetrolStationsLayerRef.current) {
+          allPetrolStationsLayerRef.current.remove();
+        }
+
+        allPetrolStationsLayerRef.current = plotAllStations(map, stations, 'petrol');
+      } catch (error) {
+        console.error('Error loading petrol stations:', error);
+        alert('Failed to load petrol stations. Please make sure the backend is running.');
+        setShowAllPetrolStations(false);
+      }
     }
   };
 
@@ -542,9 +610,9 @@ const KeralMapAnalyzer = () => {
     const isRegion = locations[0]?.type === 'region';
 
     // Find the #1 optimal location (lowest costRank = best)
-    const bestLocation = locations.reduce((best, loc) => 
+    const bestLocation = locations.reduce((best, loc) =>
       (!best || loc.costRank < best.costRank) ? loc : best
-    , null);
+      , null);
 
     if (!bestLocation) return;
 
@@ -553,7 +621,7 @@ const KeralMapAnalyzer = () => {
       const lats = bestLocation.cells.map(c => c.lat);
       const lngs = bestLocation.cells.map(c => c.lng);
       const cellSize = 0.0005;
-      
+
       const bounds = L.latLngBounds(
         [Math.min(...lats) - cellSize, Math.min(...lngs) - cellSize],
         [Math.max(...lats) + cellSize, Math.max(...lngs) + cellSize]
@@ -586,8 +654,8 @@ const KeralMapAnalyzer = () => {
 
     // Find the index of this region in the flat locations array
     // Match by costRank and subIndex for reliable matching
-    const regionIndex = optimalLocations.flatLocations.findIndex(loc => 
-      loc.costRank === (rankIndex + 1) && 
+    const regionIndex = optimalLocations.flatLocations.findIndex(loc =>
+      loc.costRank === (rankIndex + 1) &&
       loc.subIndex === subIndex
     );
 
@@ -595,7 +663,7 @@ const KeralMapAnalyzer = () => {
 
     if (regionIndex !== -1) {
       setSelectedRegionIndex(regionIndex);
-      
+
       // Use the actual region from flatLocations for zooming (has accurate coords)
       const actualRegion = optimalLocations.flatLocations[regionIndex];
       zoomToRegion(map, actualRegion);
@@ -609,9 +677,9 @@ const KeralMapAnalyzer = () => {
       optimalLocationsLayerRef.current.remove();
     }
     optimalLocationsLayerRef.current = plotOptimalLocations(
-      map, 
-      optimalLocations.flatLocations, 
-      currentPath, 
+      map,
+      optimalLocations.flatLocations,
+      currentPath,
       regionIndex !== -1 ? regionIndex : 0
     );
   };
@@ -636,8 +704,8 @@ const KeralMapAnalyzer = () => {
       optimalLocationsLayerRef.current.remove();
     }
     optimalLocationsLayerRef.current = plotOptimalLocations(
-      map, 
-      optimalLocations.flatLocations, 
+      map,
+      optimalLocations.flatLocations,
       currentPath
       // No highlightRegion = show all
     );
@@ -658,8 +726,8 @@ const KeralMapAnalyzer = () => {
       optimalLocationsLayerRef.current.remove();
     }
     optimalLocationsLayerRef.current = plotOptimalLocations(
-      map, 
-      optimalLocations.flatLocations, 
+      map,
+      optimalLocations.flatLocations,
       currentPath,
       null, // no highlight
       rankIndex // filter by rank
@@ -732,6 +800,10 @@ const KeralMapAnalyzer = () => {
         showPetrol={showPetrol}
         onToggleCharging={handleToggleCharging}
         onTogglePetrol={handleTogglePetrol}
+        showAllEVStations={showAllEVStations}
+        showAllPetrolStations={showAllPetrolStations}
+        onToggleAllEVStations={handleToggleAllEVStations}
+        onToggleAllPetrolStations={handleToggleAllPetrolStations}
         hasPolygon={!!polygon}
         onClear={clearPolygon}
         onExport={exportData}
@@ -763,7 +835,7 @@ const KeralMapAnalyzer = () => {
         onClose={() => setShowOptimalModal(false)}
         onFindLocations={handleSubmitOptimalLocations}
       />
-      
+
       {/* Region Selector UI - shows when optimal locations are found and selector is visible */}
       {optimalLocations && showRegionSelector && (
         <RegionSelector

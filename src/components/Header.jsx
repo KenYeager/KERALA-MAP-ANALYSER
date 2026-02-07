@@ -17,10 +17,10 @@ import {
 
 const ToolButton = ({ active, onClick, icon: Icon, label, variant = "default" }) => {
   const baseClasses = "flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-200";
-  
+
   const variants = {
-    default: active 
-      ? "bg-gradient-to-r from-purple-500 to-indigo-500 text-white shadow-lg shadow-purple-500/25" 
+    default: active
+      ? "bg-gradient-to-r from-purple-500 to-indigo-500 text-white shadow-lg shadow-purple-500/25"
       : "bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white border border-white/5 hover:border-white/10",
     success: active
       ? "bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-500/25"
@@ -50,6 +50,10 @@ const Header = ({
   showPetrol,
   onToggleCharging,
   onTogglePetrol,
+  showAllEVStations,
+  showAllPetrolStations,
+  onToggleAllEVStations,
+  onToggleAllPetrolStations,
   hasPolygon,
   onClear,
   onExport,
@@ -83,13 +87,39 @@ const Header = ({
         {/* Primary Actions */}
         <div className="flex items-center gap-2">
           {!drawing ? (
-            <button
-              onClick={onStartDrawing}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-500 to-indigo-500 text-white font-medium text-sm shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50 transition-all duration-200"
-            >
-              <Pencil size={16} />
-              Draw Area
-            </button>
+            <>
+              <button
+                onClick={onStartDrawing}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-500 to-indigo-500 text-white font-medium text-sm shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50 transition-all duration-200"
+              >
+                <Pencil size={16} />
+                Draw Area
+              </button>
+
+              <button
+                onClick={onToggleAllEVStations}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 ${showAllEVStations
+                    ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-500/30'
+                    : 'bg-white/5 text-gray-300 border border-white/10 hover:bg-white/10 hover:text-emerald-400 hover:border-emerald-500/30'
+                  }`}
+              >
+                <Zap size={16} />
+                <span className="hidden sm:inline">View EV Stations</span>
+                <span className="sm:hidden">EV</span>
+              </button>
+
+              <button
+                onClick={onToggleAllPetrolStations}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 ${showAllPetrolStations
+                    ? 'bg-gradient-to-r from-red-500 to-rose-500 text-white shadow-lg shadow-red-500/30'
+                    : 'bg-white/5 text-gray-300 border border-white/10 hover:bg-white/10 hover:text-red-400 hover:border-red-500/30'
+                  }`}
+              >
+                <Car size={16} />
+                <span className="hidden sm:inline">View Petrol Stations</span>
+                <span className="sm:hidden">Petrol</span>
+              </button>
+            </>
           ) : (
             <button
               onClick={onFinishDrawing}
@@ -132,7 +162,7 @@ const Header = ({
 
     {/* Secondary Toolbar - Layer Controls (only show when polygon exists) */}
     {hasPolygon && (
-      <div 
+      <div
         className="absolute left-[60px] right-[400px] top-[72px] flex justify-center py-2"
         style={{
           animation: 'slideDown 0.3s ease-out',

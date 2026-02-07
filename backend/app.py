@@ -10,6 +10,8 @@ import numpy as np
 from scipy.spatial import KDTree
 import time
 import math
+from evStationsLoader import get_all_ev_stations
+from petrolStationsLoader import get_all_petrol_stations
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for Next.js frontend
@@ -380,6 +382,52 @@ def find_optimal_locations():
         print(f"❌ Error: {str(e)}")
         import traceback
         traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/all-ev-stations', methods=['GET'])
+def get_ev_stations():
+    """
+    Get all EV charging stations in Kerala
+    
+    Returns:
+        JSON array of EV station objects with lat, lng, name, status, access
+    """
+    try:
+        stations = get_all_ev_stations()
+        return jsonify({
+            'success': True,
+            'count': len(stations),
+            'stations': stations
+        })
+    except Exception as e:
+        print(f"❌ Error fetching EV stations: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/all-petrol-stations', methods=['GET'])
+def get_petrol_stations():
+    """
+    Get all petrol stations in Kerala
+    
+    Returns:
+        JSON array of petrol station objects with lat, lng, name, operator, brand
+    """
+    try:
+        stations = get_all_petrol_stations()
+        return jsonify({
+            'success': True,
+            'count': len(stations),
+            'stations': stations
+        })
+    except Exception as e:
+        print(f"❌ Error fetching petrol stations: {str(e)}")
         return jsonify({
             'success': False,
             'error': str(e)

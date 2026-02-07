@@ -537,3 +537,63 @@ export const generateRandomPointsInPolygon = (polyCoords, count) => {
 
   return points;
 };
+
+/* ----------------------------------------------------
+   PLOT ALL STATIONS ON MAP
+   Used for visualizing all EV/Petrol stations in Kerala
+---------------------------------------------------- */
+export const plotAllStations = (map, stations, type = 'ev') => {
+  if (!map || !stations || stations.length === 0) {
+    console.warn(`No ${type} stations to plot`);
+    return null;
+  }
+
+  const layer = L.layerGroup();
+  const isEV = type === 'ev';
+
+  stations.forEach((station, i) => {
+    const marker = L.circleMarker([station.lat, station.lng], {
+      radius: isEV ? 6 : 5,
+      color: isEV ? '#059669' : '#b91c1c',
+      fillColor: isEV ? '#10b981' : '#ef4444',
+      fillOpacity: 0.8,
+      weight: 2
+    });
+
+    // Create popup content
+    let popupContent = `<strong>${isEV ? 'EV Charging' : 'Petrol'} Station</strong><br/>`;
+    popupContent += `ID: ${isEV ? 'EV' : 'P'}-${i + 1}<br/>`;
+    popupContent += `Lat: ${station.lat.toFixed(6)}<br/>`;
+    popupContent += `Lng: ${station.lng.toFixed(6)}<br/>`;
+
+    if (station.name && station.name !== 'Petrol Station' && station.name !== 'EV Charging Station') {
+      popupContent += `Name: ${station.name}<br/>`;
+    }
+    if (station.operator) {
+      popupContent += `Operator: ${station.operator}<br/>`;
+    }
+    if (station.brand) {
+      popupContent += `Brand: ${station.brand}<br/>`;
+    }
+    if (station.city) {
+      popupContent += `City: ${station.city}<br/>`;
+    }
+    if (station.access) {
+      popupContent += `Access: ${station.access}<br/>`;
+    }
+    if (station.usage_type) {
+      popupContent += `Usage: ${station.usage_type}<br/>`;
+    }
+    if (station.connectors) {
+      popupContent += `Connectors: ${station.connectors}<br/>`;
+    }
+
+    marker.bindPopup(popupContent);
+    layer.addLayer(marker);
+  });
+
+  layer.addTo(map);
+  console.log(`✓ Plotted ${stations.length} ${type} stations on map`);
+
+  return layer;
+};
