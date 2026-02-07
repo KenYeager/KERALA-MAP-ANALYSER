@@ -9,14 +9,14 @@ const VehicleDistributionCard = ({ stats }) => (
     color="orange"
     footer="Based on Kerala's vehicle ownership rate of 11.4%"
   >
-    <div className="space-y-2">
-      <div className="flex justify-between">
-        <span className="text-gray-600">Petrol/Diesel</span>
-        <span className="font-semibold text-gray-900">{stats.petrolVehicles.toLocaleString()}</span>
+    <div className="space-y-1">
+      <div className="stat-row">
+        <span className="stat-label">Petrol/Diesel</span>
+        <span className="stat-data">{stats.petrolVehicles.toLocaleString()}</span>
       </div>
-      <div className="flex justify-between">
-        <span className="text-gray-600">Total Vehicles</span>
-        <span className="font-semibold text-gray-900">
+      <div className="stat-row">
+        <span className="stat-label">Total Vehicles</span>
+        <span className="stat-data text-amber-400">
           {(stats.evVehicles + stats.petrolVehicles).toLocaleString()}
         </span>
       </div>

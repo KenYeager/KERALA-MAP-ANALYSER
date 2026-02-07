@@ -9,18 +9,20 @@ const EVInfrastructureCard = ({ stats }) => (
     color="green"
     footer="Based on Kerala's 13.5% avg EV adoption rate (FY24)"
   >
-    <div className="space-y-2">
-      <div className="flex justify-between">
-        <span className="text-gray-600">Charging Stations</span>
-        <span className="font-semibold text-gray-900">{stats.evStations}</span>
+    <div className="space-y-1">
+      <div className="stat-row">
+        <span className="stat-label">Charging Stations</span>
+        <span className="stat-data text-emerald-400">{stats.evStations}</span>
       </div>
-      <div className="flex justify-between">
-        <span className="text-gray-600">EV Vehicles</span>
-        <span className="font-semibold text-gray-900">{stats.evVehicles.toLocaleString()}</span>
+      <div className="stat-row">
+        <span className="stat-label">EV Vehicles</span>
+        <span className="stat-data">{stats.evVehicles.toLocaleString()}</span>
       </div>
-      <div className="flex justify-between">
-        <span className="text-gray-600">EV Penetration</span>
-        <span className="font-semibold text-gray-900">{stats.evPenetration}%</span>
+      <div className="stat-row">
+        <span className="stat-label">EV Penetration</span>
+        <span className="stat-data">
+          <span className="badge badge-success">{stats.evPenetration}%</span>
+        </span>
       </div>
     </div>
   </StatCard>

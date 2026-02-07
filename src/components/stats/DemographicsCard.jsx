@@ -9,14 +9,14 @@ const DemographicsCard = ({ stats }) => (
     color="purple"
     footer="Kerala state avg: 859 per km² (Census 2024)"
   >
-    <div className="space-y-2">
-      <div className="flex justify-between">
-        <span className="text-gray-600">Population</span>
-        <span className="font-semibold text-gray-900">{stats.population.toLocaleString()}</span>
+    <div className="space-y-1">
+      <div className="stat-row">
+        <span className="stat-label">Population</span>
+        <span className="stat-data">{stats.population.toLocaleString()}</span>
       </div>
-      <div className="flex justify-between">
-        <span className="text-gray-600">Density</span>
-        <span className="font-semibold text-gray-900">{stats.density} per km²</span>
+      <div className="stat-row">
+        <span className="stat-label">Density</span>
+        <span className="stat-data text-purple-400">{stats.density} per km²</span>
       </div>
     </div>
   </StatCard>

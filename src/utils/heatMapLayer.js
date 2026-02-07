@@ -135,32 +135,38 @@ export const addHeatMapLegend = (map) => {
 
   legend.onAdd = function () {
     const div = L.DomUtil.create('div', 'heat-map-legend');
-    div.style.background = 'white';
-    div.style.padding = '10px';
-    div.style.borderRadius = '8px';
-    div.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
+    div.style.background = 'rgba(22, 22, 29, 0.9)';
+    div.style.backdropFilter = 'blur(20px)';
+    div.style.webkitBackdropFilter = 'blur(20px)';
+    div.style.padding = '14px 16px';
+    div.style.borderRadius = '14px';
+    div.style.boxShadow = '0 8px 32px rgba(0,0,0,0.4)';
     div.style.fontFamily = 'system-ui';
     div.style.fontSize = '12px';
+    div.style.border = '1px solid rgba(255,255,255,0.08)';
+    div.style.marginBottom = '20px';
+    div.style.marginRight = '10px';
 
     div.innerHTML = `
-      <div style="font-weight: 600; margin-bottom: 8px; color: #1f2937;">
+      <div style="font-weight: 600; margin-bottom: 10px; color: #f4f4f5; display: flex; align-items: center; gap: 8px;">
+        <span style="font-size: 14px;">🔥</span>
         EV Station Favorability
       </div>
-      <div style="display: flex; flex-direction: column; gap: 4px;">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <div style="width: 20px; height: 20px; background: rgb(0, 255, 0); border: 1px solid #ccc;"></div>
-          <span style="color: #059669; font-weight: 500;">100% (Highly Favorable)</span>
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <div style="display: flex; align-items: center; gap: 10px; padding: 6px 8px; background: rgba(16,185,129,0.1); border-radius: 8px;">
+          <div style="width: 18px; height: 18px; background: rgb(0, 255, 0); border: 2px solid rgba(0,0,0,0.3); border-radius: 4px; box-shadow: 0 2px 8px rgba(0,255,0,0.3);"></div>
+          <span style="color: #10b981; font-weight: 500;">100% (Highly Favorable)</span>
         </div>
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <div style="width: 20px; height: 20px; background: rgb(255, 255, 0); border: 1px solid #ccc;"></div>
-          <span style="color: #d97706; font-weight: 500;">0% (Neutral)</span>
+        <div style="display: flex; align-items: center; gap: 10px; padding: 6px 8px; background: rgba(245,158,11,0.1); border-radius: 8px;">
+          <div style="width: 18px; height: 18px; background: rgb(255, 255, 0); border: 2px solid rgba(0,0,0,0.3); border-radius: 4px; box-shadow: 0 2px 8px rgba(255,255,0,0.3);"></div>
+          <span style="color: #f59e0b; font-weight: 500;">0% (Neutral)</span>
         </div>
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <div style="width: 20px; height: 20px; background: rgb(255, 0, 0); border: 1px solid #ccc;"></div>
-          <span style="color: #dc2626; font-weight: 500;">-100% (Unfavorable)</span>
+        <div style="display: flex; align-items: center; gap: 10px; padding: 6px 8px; background: rgba(239,68,68,0.1); border-radius: 8px;">
+          <div style="width: 18px; height: 18px; background: rgb(255, 0, 0); border: 2px solid rgba(0,0,0,0.3); border-radius: 4px; box-shadow: 0 2px 8px rgba(255,0,0,0.3);"></div>
+          <span style="color: #ef4444; font-weight: 500;">-100% (Unfavorable)</span>
         </div>
       </div>
-      <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #e5e7eb; font-size: 10px; color: #6b7280;">
+      <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.08); font-size: 10px; color: #6b7280;">
         Based on charging, density, substations & adoption
       </div>
     `;

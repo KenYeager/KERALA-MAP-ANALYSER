@@ -12,7 +12,35 @@ import {
   Plug,
   TrendingUp,
   Target,
+  Pencil,
 } from "lucide-react";
+
+const ToolButton = ({ active, onClick, icon: Icon, label, variant = "default" }) => {
+  const baseClasses = "flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-200";
+  
+  const variants = {
+    default: active 
+      ? "bg-gradient-to-r from-purple-500 to-indigo-500 text-white shadow-lg shadow-purple-500/25" 
+      : "bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white border border-white/5 hover:border-white/10",
+    success: active
+      ? "bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-500/25"
+      : "bg-white/5 text-gray-400 hover:bg-white/10 hover:text-emerald-400 border border-white/5 hover:border-emerald-500/30",
+  };
+
+  return (
+    <button
+      onClick={onClick}
+      className={`${baseClasses} ${variants[variant]}`}
+    >
+      <Icon size={16} />
+      <span className="hidden lg:inline">{label}</span>
+    </button>
+  );
+};
+
+const Divider = () => (
+  <div className="w-px h-8 bg-white/10 mx-1" />
+);
 
 const Header = ({
   drawing,
@@ -37,149 +65,144 @@ const Header = ({
   onToggleAdoptionLayer,
   onFindOptimalLocations,
 }) => (
-  <div className="bg-white border-b border-gray-200 px-6 py-4 shadow-sm">
-    <div className="flex items-center justify-between">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">
-          Kerala Map Analyzer
-        </h1>
-        <p className="text-sm text-gray-600 mt-1">
-          Draw polygons to analyze EV infrastructure and demographics using real
-          Kerala data
-        </p>
-      </div>
-      <div className="flex gap-3">
-        {!drawing ? (
-          <button
-            onClick={onStartDrawing}
-            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors font-medium"
-          >
-            <MapPin size={18} />
-            Start Drawing
-          </button>
-        ) : (
-          <button
-            onClick={onFinishDrawing}
-            className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors font-medium"
-          >
-            <Maximize2 size={18} />
-            Finish Polygon
-          </button>
-        )}
-        <button
-          onClick={onToggleCharging}
-          className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors font-medium ${
-            showCharging
-              ? "bg-green-600 text-white hover:bg-green-700"
-              : "bg-white text-gray-700 hover:bg-gray-100"
-          }`}
-        >
-          <Zap size={16} />
-          {showCharging ? "Hide Charging" : "Show Charging"}
-        </button>
-        <button
-          onClick={onTogglePetrol}
-          className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors font-medium ${
-            showPetrol
-              ? "bg-red-600 text-white hover:bg-red-700"
-              : "bg-white text-gray-700 hover:bg-gray-100"
-          }`}
-        >
-          <Car size={16} />
-          {showPetrol ? "Hide Petrol" : "Show Petrol"}
-        </button>
-        {hasPolygon && (
-          <button
-            onClick={onToggleGrid}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors font-medium ${
-              showGrid
-                ? "bg-purple-600 text-white hover:bg-purple-700"
-                : "bg-white text-gray-700 hover:bg-gray-100"
-            }`}
-          >
-            <Grid3x3 size={16} />
-            {showGrid ? "Hide Grid" : "Show Grid"}
-          </button>
-        )}
-        {hasPolygon && (
-          <button
-            onClick={onToggleDensityLayer}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors font-medium ${
-              showDensityLayer
-                ? "bg-blue-600 text-white hover:bg-blue-700"
-                : "bg-white text-gray-700 hover:bg-gray-100"
-            }`}
-          >
-            <Users size={16} />
-            {showDensityLayer ? "Density ON" : "Density OFF"}
-          </button>
-        )}
-        {hasPolygon && (
-          <button
-            onClick={onToggleSubstationsLayer}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors font-medium ${
-              showSubstationsLayer
-                ? "bg-purple-600 text-white hover:bg-purple-700"
-                : "bg-white text-gray-700 hover:bg-gray-100"
-            }`}
-          >
-            <Plug size={16} />
-            {showSubstationsLayer ? "Substations ON" : "Substations OFF"}
-          </button>
-        )}
-        {hasPolygon && (
-          <button
-            onClick={onToggleAdoptionLayer}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors font-medium ${
-              showAdoptionLayer
-                ? "bg-amber-600 text-white hover:bg-amber-700"
-                : "bg-white text-gray-700 hover:bg-gray-100"
-            }`}
-          >
-            <TrendingUp size={16} />
-            {showAdoptionLayer ? "Adoption ON" : "Adoption OFF"}
-          </button>
-        )}
-        {hasPolygon && (
-          <button
-            onClick={onToggleHeatMap}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors font-medium ${
-              showHeatMap
-                ? "bg-orange-600 text-white hover:bg-orange-700"
-                : "bg-white text-gray-700 hover:bg-gray-100"
-            }`}
-          >
-            <Flame size={16} />
-            {showHeatMap ? "Hide Heat Map" : "Show Heat Map"}
-          </button>
-        )}
-        {hasPolygon && (
-          <>
+  <div className="fixed top-0 left-0 right-0 z-50">
+    {/* Top Bar with branding and main actions */}
+    <div className="glass border-b-0 rounded-none">
+      <div className="flex items-center justify-between px-6 py-3">
+        {/* Logo and Title */}
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-purple-500/30">
+            <Zap size={20} className="text-white" />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold text-white tracking-tight">Kerala EV Analyzer</h1>
+            <p className="text-xs text-gray-500">Infrastructure Planning Tool</p>
+          </div>
+        </div>
+
+        {/* Primary Actions */}
+        <div className="flex items-center gap-2">
+          {!drawing ? (
             <button
-              onClick={onFindOptimalLocations}
-              className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors font-medium"
+              onClick={onStartDrawing}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-500 to-indigo-500 text-white font-medium text-sm shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50 transition-all duration-200"
             >
-              <Target size={18} />
-              Find Optimal Locations
+              <Pencil size={16} />
+              Draw Area
             </button>
+          ) : (
             <button
-              onClick={onClear}
-              className="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors font-medium"
+              onClick={onFinishDrawing}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-medium text-sm shadow-lg shadow-emerald-500/30 hover:shadow-emerald-500/50 transition-all duration-200 animate-pulse"
             >
-              <Trash2 size={18} />
-              Clear
+              <Maximize2 size={16} />
+              Complete Polygon
             </button>
-            <button
-              onClick={onExport}
-              className="flex items-center gap-2 bg-gray-700 text-white px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors font-medium"
-            >
-              <Download size={18} />
-              Export
-            </button>
-          </>
-        )}
+          )}
+
+          {hasPolygon && (
+            <>
+              <button
+                onClick={onFindOptimalLocations}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-medium text-sm shadow-lg shadow-emerald-500/30 hover:shadow-emerald-500/50 transition-all duration-200"
+              >
+                <Target size={16} />
+                <span className="hidden sm:inline">Find Optimal</span>
+              </button>
+
+              <button
+                onClick={onExport}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 text-gray-300 font-medium text-sm border border-white/10 hover:bg-white/10 hover:text-white transition-all duration-200"
+              >
+                <Download size={16} />
+                <span className="hidden sm:inline">Export</span>
+              </button>
+
+              <button
+                onClick={onClear}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-500/10 text-red-400 font-medium text-sm border border-red-500/20 hover:bg-red-500/20 hover:text-red-300 transition-all duration-200"
+              >
+                <Trash2 size={16} />
+              </button>
+            </>
+          )}
+        </div>
       </div>
     </div>
+
+    {/* Secondary Toolbar - Layer Controls (only show when polygon exists) */}
+    {hasPolygon && (
+      <div 
+        className="absolute left-[60px] right-[400px] top-[72px] flex justify-center py-2"
+        style={{
+          animation: 'slideDown 0.3s ease-out',
+        }}
+      >
+        <div className="glass rounded-2xl px-4 py-2 flex items-center gap-1 shadow-2xl border border-white/10 backdrop-blur-xl transition-all duration-300 hover:shadow-purple-500/10 hover:border-white/20">
+          {/* Markers Section */}
+          <div className="flex items-center gap-1 px-2">
+            <span className="text-xs text-gray-500 uppercase tracking-wider mr-2 hidden xl:inline">Markers</span>
+            <ToolButton
+              active={showCharging}
+              onClick={onToggleCharging}
+              icon={Zap}
+              label="EV Stations"
+              variant="success"
+            />
+            <ToolButton
+              active={showPetrol}
+              onClick={onTogglePetrol}
+              icon={Car}
+              label="Petrol"
+            />
+          </div>
+
+          <Divider />
+
+          {/* Analysis Layers */}
+          <div className="flex items-center gap-1 px-2">
+            <span className="text-xs text-gray-500 uppercase tracking-wider mr-2 hidden xl:inline">Layers</span>
+            <ToolButton
+              active={showDensityLayer}
+              onClick={onToggleDensityLayer}
+              icon={Users}
+              label="Density"
+            />
+            <ToolButton
+              active={showSubstationsLayer}
+              onClick={onToggleSubstationsLayer}
+              icon={Plug}
+              label="Substations"
+            />
+            <ToolButton
+              active={showAdoptionLayer}
+              onClick={onToggleAdoptionLayer}
+              icon={TrendingUp}
+              label="Adoption"
+            />
+          </div>
+
+          <Divider />
+
+          {/* Visualization */}
+          <div className="flex items-center gap-1 px-2">
+            <span className="text-xs text-gray-500 uppercase tracking-wider mr-2 hidden xl:inline">View</span>
+            <ToolButton
+              active={showGrid}
+              onClick={onToggleGrid}
+              icon={Grid3x3}
+              label="Grid"
+            />
+            <ToolButton
+              active={showHeatMap}
+              onClick={onToggleHeatMap}
+              icon={Flame}
+              label="Heat Map"
+            />
+          </div>
+        </div>
+      </div>
+    )}
   </div>
 );
 

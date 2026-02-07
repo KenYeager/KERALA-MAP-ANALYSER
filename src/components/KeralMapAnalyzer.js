@@ -18,7 +18,7 @@ import { generateHeatMapLayer, addHeatMapLegend } from '../utils/heatMapLayer';
 import { fetchPopulationDensityData, calculatePopulationDensityCost } from '../utils/populationDensityLayer';
 import { fetchSubstationsData, calculateSubstationsCost, plotSubstationsOnMap } from '../utils/substationsLayer';
 import { fetchAdoptionLikelihoodData, calculateAdoptionLikelihoodCost, plotAdoptionCentersOnMap } from '../utils/adoptionLikelihoodLayer';
-import { plotOptimalLocations, groupLocationsByCost, zoomToRegion, REGION_COLORS } from '../utils/optimalLocationFinder';
+import { plotOptimalLocations, groupLocationsByCost, zoomToRegion, removeLegend, REGION_COLORS } from '../utils/optimalLocationFinder';
 import { findOptimalLocationsAPI, checkBackendHealth } from '../utils/optimalLocationFinderAPI';
 
 const KeralMapAnalyzer = () => {
@@ -582,19 +582,27 @@ const KeralMapAnalyzer = () => {
   const handleRegionSelect = (region, rankIndex, subIndex, cost) => {
     if (!map || !optimalLocations?.flatLocations) return;
 
+    console.log(`Selecting region: rank=${rankIndex + 1}, subIndex=${subIndex}, cost=${cost}`);
+
     // Find the index of this region in the flat locations array
+    // Match by costRank and subIndex for reliable matching
     const regionIndex = optimalLocations.flatLocations.findIndex(loc => 
-      loc.latitude === region.latitude && 
-      loc.longitude === region.longitude &&
-      loc.cost === region.cost
+      loc.costRank === (rankIndex + 1) && 
+      loc.subIndex === subIndex
     );
+
+    console.log(`Found region at flatLocations index: ${regionIndex}`);
 
     if (regionIndex !== -1) {
       setSelectedRegionIndex(regionIndex);
+      
+      // Use the actual region from flatLocations for zooming (has accurate coords)
+      const actualRegion = optimalLocations.flatLocations[regionIndex];
+      zoomToRegion(map, actualRegion);
+    } else {
+      // Fallback: use the passed region directly
+      zoomToRegion(map, region);
     }
-
-    // Use zoomToRegion from optimalLocationFinder
-    zoomToRegion(map, region);
 
     // Re-plot with highlight on selected region
     if (optimalLocationsLayerRef.current) {
@@ -636,6 +644,29 @@ const KeralMapAnalyzer = () => {
   };
 
   /**
+   * Filter to show only specific rank
+   */
+  const handleFilterByRank = (rankIndex) => {
+    if (!map || !optimalLocations?.flatLocations) return;
+
+    console.log(`Filtering to rank: ${rankIndex !== null ? rankIndex + 1 : 'all'}`);
+
+    setSelectedRegionIndex(null);
+
+    // Re-plot with filter for specific rank
+    if (optimalLocationsLayerRef.current) {
+      optimalLocationsLayerRef.current.remove();
+    }
+    optimalLocationsLayerRef.current = plotOptimalLocations(
+      map, 
+      optimalLocations.flatLocations, 
+      currentPath,
+      null, // no highlight
+      rankIndex // filter by rank
+    );
+  };
+
+  /**
    * Clear optimal locations completely
    */
   const handleClearOptimalLocations = () => {
@@ -643,6 +674,8 @@ const KeralMapAnalyzer = () => {
       optimalLocationsLayerRef.current.remove();
       optimalLocationsLayerRef.current = null;
     }
+    // Remove the legend from the map
+    removeLegend();
     setOptimalLocations(null);
     setShowRegionSelector(false);
     setSelectedRegionIndex(0);
@@ -690,7 +723,7 @@ const KeralMapAnalyzer = () => {
   }, [map, drawing, currentPath]);
 
   return (
-    <div className="h-screen w-full flex flex-col bg-gray-50">
+    <div className="h-screen w-full flex flex-col bg-[#0f0f14]">
       <Header
         drawing={drawing}
         onStartDrawing={startDrawing}
@@ -715,11 +748,13 @@ const KeralMapAnalyzer = () => {
         onFindOptimalLocations={handleFindOptimalLocations}
       />
 
-      <div className="flex-1 flex overflow-hidden">
+      {/* Main content with top padding for fixed header */}
+      <div className="flex-1 flex overflow-hidden pt-16">
         <MapView
           mapRef={mapRef}
           drawing={drawing}
           pointCount={currentPath.length}
+          hasPolygon={!!polygon}
         />
         <StatsPanel stats={stats} />
       </div>
@@ -738,6 +773,7 @@ const KeralMapAnalyzer = () => {
           onShowAll={handleShowAllRegions}
           onClose={handleHideRegionSelector}
           onClear={handleClearOptimalLocations}
+          onFilterByRank={handleFilterByRank}
         />
       )}
     </div>

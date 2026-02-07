@@ -8,63 +8,79 @@ import L from 'leaflet';
 /**
  * Calculate the outer boundary of a group of cells
  * Returns an array of polyline coordinates representing the perimeter
+ * Uses grid-based keys to handle floating point precision
  */
 const calculateCellBoundary = (cells, cellSize = 0.0005) => {
     if (!cells || cells.length === 0) return [];
     
-    // Create a set of cell keys for O(1) lookup
+    // Use grid indices instead of coordinates for reliable matching
+    // Round coordinates to grid positions
+    const toGridKey = (lat, lng) => {
+        const gridLat = Math.round(lat / cellSize);
+        const gridLng = Math.round(lng / cellSize);
+        return `${gridLat},${gridLng}`;
+    };
+    
+    // Create a set of grid keys for O(1) lookup
     const cellSet = new Set();
+    const cellCoords = new Map(); // Map grid key to actual coords
+    
     cells.forEach(cell => {
-        // Round to avoid floating point issues
-        const key = `${cell.lat.toFixed(6)},${cell.lng.toFixed(6)}`;
+        const key = toGridKey(cell.lat, cell.lng);
         cellSet.add(key);
+        cellCoords.set(key, { lat: cell.lat, lng: cell.lng });
     });
     
-    // Helper to check if a cell exists
-    const hasCell = (lat, lng) => {
-        const key = `${lat.toFixed(6)},${lng.toFixed(6)}`;
+    // Helper to check if a cell exists at grid position
+    const hasCell = (gridLat, gridLng) => {
+        const key = `${gridLat},${gridLng}`;
         return cellSet.has(key);
     };
     
-    // Collect all outer edges
-    // Each edge is represented as [startLat, startLng, endLat, endLng]
+    // Collect all outer edges using grid coordinates
     const edges = [];
     const halfCell = cellSize / 2;
     
     cells.forEach(cell => {
+        const gridLat = Math.round(cell.lat / cellSize);
+        const gridLng = Math.round(cell.lng / cellSize);
+        
+        // Use actual cell coords for edge positions
         const lat = cell.lat;
         const lng = cell.lng;
         
-        // Cell corners (counter-clockwise from bottom-left)
+        // Cell corners
         const minLat = lat - halfCell;
         const maxLat = lat + halfCell;
         const minLng = lng - halfCell;
         const maxLng = lng + halfCell;
         
-        // Check each edge - add if no adjacent cell on that side
+        // Check each edge using GRID positions for neighbor check
         // Top edge (only if no cell above)
-        if (!hasCell(lat + cellSize, lng)) {
+        if (!hasCell(gridLat + 1, gridLng)) {
             edges.push([[maxLat, minLng], [maxLat, maxLng]]);
         }
         // Bottom edge (only if no cell below)
-        if (!hasCell(lat - cellSize, lng)) {
+        if (!hasCell(gridLat - 1, gridLng)) {
             edges.push([[minLat, maxLng], [minLat, minLng]]);
         }
         // Left edge (only if no cell to the left)
-        if (!hasCell(lat, lng - cellSize)) {
+        if (!hasCell(gridLat, gridLng - 1)) {
             edges.push([[maxLat, minLng], [minLat, minLng]]);
         }
         // Right edge (only if no cell to the right)
-        if (!hasCell(lat, lng + cellSize)) {
+        if (!hasCell(gridLat, gridLng + 1)) {
             edges.push([[minLat, maxLng], [maxLat, maxLng]]);
         }
     });
     
     if (edges.length === 0) return [];
     
-    // Connect edges into continuous paths
-    // Build adjacency map
-    const pointKey = (p) => `${p[0].toFixed(7)},${p[1].toFixed(7)}`;
+    // Round edge points to avoid floating point issues when connecting
+    const roundCoord = (val) => Math.round(val * 1000000) / 1000000;
+    const pointKey = (p) => `${roundCoord(p[0])},${roundCoord(p[1])}`;
+    
+    // Build adjacency map for edge connections
     const edgeMap = new Map();
     
     edges.forEach(edge => {
@@ -74,15 +90,15 @@ const calculateCellBoundary = (cells, cellSize = 0.0005) => {
         if (!edgeMap.has(startKey)) edgeMap.set(startKey, []);
         if (!edgeMap.has(endKey)) edgeMap.set(endKey, []);
         
-        edgeMap.get(startKey).push({ to: edge[1], toKey: endKey, used: false, edge });
-        edgeMap.get(endKey).push({ to: edge[0], toKey: startKey, used: false, edge });
+        edgeMap.get(startKey).push({ to: edge[1], toKey: endKey });
+        edgeMap.get(endKey).push({ to: edge[0], toKey: startKey });
     });
     
     // Trace closed loops
     const paths = [];
     const usedEdges = new Set();
     
-    edges.forEach((startEdge, idx) => {
+    edges.forEach((startEdge) => {
         const edgeKey = `${pointKey(startEdge[0])}-${pointKey(startEdge[1])}`;
         const reverseKey = `${pointKey(startEdge[1])}-${pointKey(startEdge[0])}`;
         
@@ -128,6 +144,8 @@ const calculateCellBoundary = (cells, cellSize = 0.0005) => {
             paths.push(path);
         }
     });
+    
+    console.log(`  Boundary: ${cells.length} cells → ${edges.length} outer edges → ${paths.length} closed path(s)`);
     
     return paths;
 };
@@ -594,7 +612,7 @@ export const zoomToRegion = (map, region, padding = 80) => {
  * @param {Object} highlightRegion - Optional region to highlight (others will be dimmed)
  * @returns {Object} Layer group and region data for selection
  */
-export const plotOptimalLocations = (map, locations, userPolygon = null, highlightRegion = null) => {
+export const plotOptimalLocations = (map, locations, userPolygon = null, highlightRegion = null, filterRank = null) => {
     if (!locations || locations.length === 0) {
         console.log('No optimal locations to plot');
         return null;
@@ -604,6 +622,11 @@ export const plotOptimalLocations = (map, locations, userPolygon = null, highlig
     
     // Group locations by cost and assign color indices
     const processedLocations = groupLocationsByCost(locations);
+
+    // Apply rank filter if specified (filterRank is 0-indexed costRank - 1)
+    const filteredLocations = filterRank !== null 
+        ? processedLocations.filter(loc => loc.costRank === (filterRank + 1))
+        : processedLocations;
 
     // Add CSS styles for animations and marker visibility
     const styleId = 'optimal-region-styles';
@@ -652,7 +675,9 @@ export const plotOptimalLocations = (map, locations, userPolygon = null, highlig
         document.head.appendChild(style);
     }
 
-    processedLocations.forEach((location, i) => {
+    console.log(`Plotting ${filteredLocations.length} locations (filter: ${filterRank !== null ? `rank ${filterRank + 1}` : 'none'})`);
+
+    filteredLocations.forEach((location, i) => {
         // Use colorIndex based on cost grouping (same cost = same color)
         const colorIndex = location.colorIndex % REGION_COLORS.length;
         const colors = REGION_COLORS[colorIndex];
@@ -699,161 +724,28 @@ export const plotOptimalLocations = (map, locations, userPolygon = null, highlig
                              location.costRank === 2 ? '🥈' : 
                              location.costRank === 3 ? '🥉' : `#${location.costRank}`;
 
-            // ============ DRAW CELL BOUNDARIES ============
-            // Calculate and draw the outer boundary of combined cells
-            const boundaryPaths = calculateCellBoundary(validCells, cellSize);
-            
-            if (boundaryPaths.length > 0) {
-                // Draw each boundary path with thick black border
-                boundaryPaths.forEach(path => {
-                    if (path.length < 2) return;
-                    
-                    const polyline = L.polyline(path, {
-                        color: '#000000',      // Black border
-                        weight: 4,             // Thick line
-                        opacity: 1,
-                        fill: true,
-                        fillColor: colors.primary,
-                        fillOpacity: 0.3,
-                        dashArray: null        // Solid line
-                    });
-                    
-                    layer.addLayer(polyline);
-                });
-                
-                console.log(`  Drew ${boundaryPaths.length} boundary path(s) with ${boundaryPaths.reduce((s, p) => s + p.length, 0)} points`);
-            } else if (validCells.length === 1) {
-                // Single isolated cell - draw a rectangle border
-                const cell = validCells[0];
+            // ============ DRAW INDIVIDUAL CELL RECTANGLES ============
+            // Simple approach: draw each cell as a filled rectangle with thin border
+            validCells.forEach(cell => {
                 const halfCell = cellSize / 2;
                 const cellRect = L.rectangle(
                     [[cell.lat - halfCell, cell.lng - halfCell], 
                      [cell.lat + halfCell, cell.lng + halfCell]],
                     {
                         color: '#000000',      // Black border
-                        weight: 4,             // Thick line
-                        opacity: 1,
+                        weight: 1,             // Thin border
+                        opacity: 0.8,
                         fill: true,
                         fillColor: colors.primary,
-                        fillOpacity: 0.3
+                        fillOpacity: 0.5
                     }
                 );
                 layer.addLayer(cellRect);
-                console.log(`  Drew single cell rectangle`);
-            }
-
-            // ============ PLACE MARKER AT CENTROID ============
-            // Create Google Maps style destination marker at centroid of the shape
-            const markerIcon = L.divIcon({
-                className: 'optimal-location-pointer',
-                html: `<div style="
-                    position: relative;
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                ">
-                    <!-- Main pin body -->
-                    <div style="
-                        width: 40px;
-                        height: 40px;
-                        background: linear-gradient(135deg, ${colors.primary} 0%, ${colors.secondary} 100%);
-                        border: 4px solid white;
-                        border-radius: 50% 50% 50% 0;
-                        transform: rotate(-45deg);
-                        box-shadow: 0 4px 15px rgba(0,0,0,0.4);
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                    ">
-                        <span style="
-                            transform: rotate(45deg);
-                            color: white;
-                            font-weight: bold;
-                            font-size: 16px;
-                        ">${location.costRank}</span>
-                    </div>
-                    <!-- Pin shadow -->
-                    <div style="
-                        width: 16px;
-                        height: 6px;
-                        background: rgba(0,0,0,0.3);
-                        border-radius: 50%;
-                        margin-top: 4px;
-                    "></div>
-                    <!-- Label below -->
-                    <div style="
-                        margin-top: 4px;
-                        background: ${colors.primary};
-                        color: white;
-                        padding: 4px 10px;
-                        border-radius: 12px;
-                        font-size: 11px;
-                        font-weight: bold;
-                        white-space: nowrap;
-                        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-                        border: 2px solid white;
-                    ">
-                        ${rankEmoji} Cost: ${location.cost.toFixed(1)}
-                    </div>
-                </div>`,
-                iconSize: [60, 90],
-                iconAnchor: [30, 50]
             });
+            
+            console.log(`  Drew ${validCells.length} cell rectangles`);
 
-            const markerPoint = L.marker([centroidLat, centroidLng], {
-                icon: markerIcon,
-                zIndexOffset: 10000 + (100 - location.costRank)
-            });
-
-            // Create detailed popup (without population density)
-            const popupContent = `<div style="font-family: system-ui; min-width: 260px;">
-                <div style="background: linear-gradient(135deg, ${colors.primary} 0%, ${colors.secondary} 100%); color: white; padding: 12px; margin: -10px -10px 10px -10px; border-radius: 8px 8px 0 0;">
-                    <div style="font-size: 18px; font-weight: bold; display: flex; align-items: center; gap: 8px;">
-                        <span style="font-size: 24px;">${rankEmoji}</span>
-                        <span>Optimal Region (Cost: ${location.cost.toFixed(2)})</span>
-                    </div>
-                    <div style="font-size: 12px; opacity: 0.9; margin-top: 4px;">
-                        RECOMMENDED CHARGING STATION AREA
-                    </div>
-                </div>
-                
-                <div style="padding: 8px 0;">
-                    <div style="display: flex; justify-content: space-between; margin: 8px 0; padding: 8px; background: ${colors.light}; border-radius: 6px;">
-                        <span style="color: ${colors.secondary}; font-weight: 600;">Cost Score:</span>
-                        <strong style="color: ${colors.primary}; font-size: 16px;">${location.cost.toFixed(2)}</strong>
-                    </div>
-                    
-                    <div style="display: flex; justify-content: space-between; margin: 6px 0; padding: 6px 0; border-bottom: 1px solid #e5e7eb;">
-                        <span style="color: #6b7280;">Region Size:</span>
-                        <strong style="color: #1f2937;">${validCells.length} cells</strong>
-                    </div>
-                    
-                    <div style="display: flex; justify-content: space-between; margin: 6px 0; padding: 6px 0; border-bottom: 1px solid #e5e7eb;">
-                        <span style="color: #6b7280;">Avg Nearest Station:</span>
-                        <strong style="color: #1f2937;">${(location.avgNearestStation || 0).toFixed(3)} km</strong>
-                    </div>
-                </div>
-                
-                <div style="margin-top: 12px; padding: 10px; background: linear-gradient(135deg, ${colors.light} 0%, white 100%); border-radius: 6px; text-align: center; border: 2px solid ${colors.primary};">
-                    <span style="font-size: 13px; font-weight: 700; color: ${colors.secondary};">
-                        ✓ RANK #${location.costRank} OPTIMAL
-                    </span>
-                    <div style="font-size: 10px; color: #6b7280; margin-top: 4px;">
-                        Lower cost = Better location for EV charging
-                    </div>
-                </div>
-                
-                <div style="margin-top: 8px; padding: 6px; background: #f9fafb; border-radius: 4px; text-align: center;">
-                    <div style="font-size: 10px; color: #6b7280; font-weight: 500;">CENTER COORDINATES</div>
-                    <div style="font-size: 11px; color: #1f2937; font-family: monospace; margin-top: 2px;">
-                        ${centroidLat.toFixed(6)}, ${centroidLng.toFixed(6)}
-                    </div>
-                </div>
-            </div>`;
-
-            markerPoint.bindPopup(popupContent, { maxWidth: 300, className: 'optimal-region-popup' });
-
-            layer.addLayer(markerPoint);
+            // No marker - using legend instead
 
         } else {
             // Skip rendering this location entirely if it's dimmed (not highlighted)
@@ -987,9 +879,131 @@ export const plotOptimalLocations = (map, locations, userPolygon = null, highlig
         }
     });
 
+    // ============ ADD LEGEND TO MAP ============
+    // Create legend showing what colors mean
+    const legendId = 'optimal-locations-legend';
+    
+    // Remove existing legend if any
+    const existingLegend = document.getElementById(legendId);
+    if (existingLegend) {
+        existingLegend.remove();
+    }
+    
+    // Build legend items from filtered locations (unique cost ranks)
+    const uniqueRanks = new Map();
+    filteredLocations.forEach(loc => {
+        if (!uniqueRanks.has(loc.costRank)) {
+            const colorIndex = loc.colorIndex % REGION_COLORS.length;
+            uniqueRanks.set(loc.costRank, {
+                costRank: loc.costRank,
+                cost: loc.cost,
+                colors: REGION_COLORS[colorIndex]
+            });
+        }
+    });
+    
+    // Sort by cost rank
+    const sortedRanks = Array.from(uniqueRanks.values()).sort((a, b) => a.costRank - b.costRank);
+    
+    // Legend title - indicate if filtered
+    const legendTitle = filterRank !== null 
+        ? `🔍 Rank ${filterRank + 1} Only`
+        : 'Optimal Locations';
+    
+    // Create legend HTML with dark theme
+    const legendHtml = `
+        <div id="${legendId}" style="
+            position: fixed;
+            top: 100px;
+            right: 20px;
+            background: rgba(22, 22, 29, 0.9);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            padding: 16px;
+            z-index: 10000;
+            font-family: system-ui, -apple-system, sans-serif;
+            min-width: 200px;
+            border: 1px solid rgba(255,255,255,0.08);
+        ">
+            <div style="
+                font-size: 14px;
+                font-weight: 700;
+                color: #f4f4f5;
+                margin-bottom: 12px;
+                padding-bottom: 10px;
+                border-bottom: 1px solid rgba(255,255,255,0.08);
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            ">
+                <span style="font-size: 16px;">📍</span>
+                ${legendTitle}
+            </div>
+            ${sortedRanks.map(rank => {
+                const emoji = rank.costRank === 1 ? '🥇' : 
+                             rank.costRank === 2 ? '🥈' : 
+                             rank.costRank === 3 ? '🥉' : `#${rank.costRank}`;
+                return `
+                    <div style="
+                        display: flex;
+                        align-items: center;
+                        gap: 12px;
+                        margin: 8px 0;
+                        padding: 8px 10px;
+                        border-radius: 10px;
+                        background: rgba(255,255,255,0.03);
+                        border: 1px solid rgba(255,255,255,0.05);
+                        transition: all 0.2s ease;
+                    ">
+                        <div style="
+                            width: 22px;
+                            height: 22px;
+                            background: linear-gradient(135deg, ${rank.colors.primary}, ${rank.colors.secondary});
+                            border: 2px solid rgba(0,0,0,0.3);
+                            border-radius: 6px;
+                            flex-shrink: 0;
+                            box-shadow: 0 4px 12px ${rank.colors.primary}40;
+                        "></div>
+                        <div style="flex: 1;">
+                            <div style="font-size: 12px; font-weight: 600; color: ${rank.colors.primary};">
+                                ${emoji} Rank ${rank.costRank}
+                            </div>
+                            <div style="font-size: 10px; color: #6b7280;">
+                                Cost: ${rank.cost.toFixed(2)}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('')}
+            <div style="
+                margin-top: 12px;
+                padding-top: 10px;
+                border-top: 1px solid rgba(255,255,255,0.08);
+                font-size: 10px;
+                color: #6b7280;
+                text-align: center;
+            ">
+                Lower cost = Better location
+            </div>
+        </div>
+    `;
+    
+    // Add legend to document body
+    document.body.insertAdjacentHTML('beforeend', legendHtml);
+
     layer.addTo(map);
     console.log(`Plotted ${locations.length} optimal ${locations[0]?.type === 'region' ? 'regions' : 'locations'} on map`);
     return layer;
+};
+
+// Function to remove legend when clearing locations
+export const removeLegend = () => {
+    const legend = document.getElementById('optimal-locations-legend');
+    if (legend) {
+        legend.remove();
+    }
 };
 
 export default {
@@ -997,5 +1011,6 @@ export default {
     plotOptimalLocations,
     groupLocationsByCost,
     zoomToRegion,
+    removeLegend,
     REGION_COLORS
 };
