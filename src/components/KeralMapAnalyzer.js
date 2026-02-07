@@ -4,7 +4,16 @@ import 'leaflet/dist/leaflet.css';
 import Header from './Header';
 import MapView from './MapView';
 import StatsPanel from './StatsPanel';
-import { generateStats, generateRandomPointsInPolygon, generateGridCells, visualizeGridCells } from '../utils/mapUtils';
+import {
+  generateStats,
+  fetchStationsFromDB,
+  generateGridCells,
+  visualizeGridCells,
+  pointInPolygon,
+  calculateChargingStationProximityCost
+} from '../utils/mapUtils';
+import { generateHeatMapLayer, addHeatMapLegend } from '../utils/heatMapLayer';
+import { fetchPopulationDensityData, calculatePopulationDensityCost } from '../utils/populationDensityLayer';
 
 const KeralMapAnalyzer = () => {
   const mapRef = useRef(null);
@@ -19,11 +28,16 @@ const KeralMapAnalyzer = () => {
   const [petrolLayer, setPetrolLayer] = useState(null);
   const [gridLayer, setGridLayer] = useState(null);
   const [showGrid, setShowGrid] = useState(false);
+  const [showHeatMap, setShowHeatMap] = useState(false);
+  const [showDensityLayer, setShowDensityLayer] = useState(false);
   const gridLayerRef = useRef(null);
+  const heatMapLayerRef = useRef(null);
+  const heatMapLegendRef = useRef(null);
+  const currentCellsRef = useRef(null);
 
   useEffect(() => {
     const mapInstance = L.map(mapRef.current).setView([10.8505, 76.2711], 8);
-    
+
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap contributors',
       maxZoom: 19
@@ -34,40 +48,47 @@ const KeralMapAnalyzer = () => {
     return () => mapInstance.remove();
   }, []);
 
-  const plotMarkers = (type) => {
-    if (!map) return;
-    const poly = currentPath.length >= 3 ? currentPath : null;
-    let points = [];
-    
+  const plotMarkersFromDB = async (type) => {
+    if (!map || !currentPath || currentPath.length < 3) return;
+
+    const stations = await fetchStationsFromDB(currentPath, type);
+
+    if (stations.length === 0) {
+      console.warn(`No ${type} stations found in the database for this area`);
+      return;
+    }
+
+    // Filter stations to only those inside the polygon
+    const filteredStations = stations.filter(station =>
+      pointInPolygon(station, currentPath)
+    );
+
+    const layer = L.layerGroup();
+
+    filteredStations.forEach((station, i) => {
+      const marker = L.circleMarker(station, {
+        radius: type === 'charging' ? 6 : 5,
+        color: type === 'charging' ? '#059669' : '#b91c1c',
+        fillColor: type === 'charging' ? '#10b981' : '#ef4444',
+        fillOpacity: 0.9
+      });
+
+      marker.bindPopup(
+        `<strong>${type === 'charging' ? 'Charging' : 'Petrol'} Station</strong><br/>ID: ${type === 'charging' ? 'CH' : 'P'}-${i + 1}<br/>Lat: ${station[0].toFixed(6)}<br/>Lng: ${station[1].toFixed(6)}`
+      );
+
+      layer.addLayer(marker);
+    });
+
+    layer.addTo(map);
+
     if (type === 'charging') {
-      const count = stats ? Math.max(1, stats.evStations) : 10;
-      points = poly ? generateRandomPointsInPolygon(poly, count) : 
-        generateRandomPointsInPolygon([[10.5,75.5],[11.5,75.5],[11.5,77.5],[10.5,77.5]], count);
-      const layer = L.layerGroup();
-      points.forEach((p, i) => {
-        const marker = L.circleMarker(p, { 
-          radius: 6, color: '#059669', fillColor: '#10b981', fillOpacity: 0.9 
-        });
-        marker.bindPopup(`<strong>Charging Station</strong><br/>ID: CH-${i + 1}`);
-        layer.addLayer(marker);
-      });
-      layer.addTo(map);
       setChargingLayer(layer);
-    } else if (type === 'petrol') {
-      const count = stats ? Math.max(3, Math.floor(stats.petrolVehicles / 2000)) : 20;
-      points = poly ? generateRandomPointsInPolygon(poly, count) : 
-        generateRandomPointsInPolygon([[10.5,75.5],[11.5,75.5],[11.5,77.5],[10.5,77.5]], count);
-      const layer = L.layerGroup();
-      points.forEach((p, i) => {
-        const marker = L.circleMarker(p, { 
-          radius: 5, color: '#b91c1c', fillColor: '#ef4444', fillOpacity: 0.9 
-        });
-        marker.bindPopup(`<strong>Petrol Station</strong><br/>ID: P-${i + 1}`);
-        layer.addLayer(marker);
-      });
-      layer.addTo(map);
+    } else {
       setPetrolLayer(layer);
     }
+
+    console.log(`Plotted ${filteredStations.length} ${type} stations from database`);
   };
 
   const startDrawing = () => {
@@ -83,7 +104,6 @@ const KeralMapAnalyzer = () => {
 
   const handleMapClick = (e) => {
     if (!drawing || !map) return;
-    
     const latlng = e.latlng;
     const newPath = [...currentPath, [latlng.lat, latlng.lng]];
     setCurrentPath(newPath);
@@ -96,35 +116,70 @@ const KeralMapAnalyzer = () => {
       fillOpacity: 0.2,
       weight: 3
     }).addTo(map);
-    
+
     setPolygon(newPolygon);
   };
 
-  const finishDrawing = () => {
-  if (currentPath.length < 3) {
-    alert('Please draw at least 3 points to create a polygon');
-    return;
-  }
+  const finishDrawing = async () => {
+    if (currentPath.length < 3) {
+      alert('Please draw at least 3 points to create a polygon');
+      return;
+    }
 
-  setDrawing(false);
+    setDrawing(false);
 
-  const generatedStats = generateStats(currentPath);
-  setStats(generatedStats);
+    const generatedStats = generateStats(currentPath);
+    setStats(generatedStats);
 
-  // 🔹 Generate grid cells
-  const cells = generateGridCells(currentPath);
-  console.log('Total grid cells generated:', cells.length);
+    // Check area size and warn user
+    const area = parseFloat(generatedStats.area);
+    if (area > 200) {
+      const proceed = window.confirm(
+        `Warning: This is a very large area (${area.toFixed(2)} km²).\n\n` +
+        `Processing may take some time and use larger grid cells.\n\n` +
+        `For best results, consider drawing a smaller area.\n\n` +
+        `Continue anyway?`
+      );
+      if (!proceed) {
+        return;
+      }
+    }
 
-  // 🔹 CLEAR old grid layer if it exists
-  if (gridLayerRef.current) {
-    gridLayerRef.current.remove();
-    gridLayerRef.current = null;
-  }
+    console.log(`Processing area: ${area.toFixed(2)} km²`);
 
-  // 🔹 VISUALIZE grid cells
-  gridLayerRef.current = visualizeGridCells(map, cells);
-};
+    let cells = generateGridCells(currentPath);
+    console.log('Total grid cells generated:', cells.length);
 
+    // Fetch charging stations and calculate proximity costs
+    const chargingStations = await fetchStationsFromDB(currentPath, 'charging');
+    const filteredStations = chargingStations.filter(station =>
+      pointInPolygon(station, currentPath)
+    );
+
+    console.log(`Applying proximity penalties based on ${filteredStations.length} charging stations`);
+    cells = calculateChargingStationProximityCost(cells, filteredStations);
+
+    // Fetch population density data and calculate density cost if layer is enabled
+    if (showDensityLayer) {
+      const densityData = await fetchPopulationDensityData(currentPath);
+      console.log(`Applying population density cost based on ${densityData.length} density zones`);
+      cells = calculatePopulationDensityCost(cells, densityData);
+    }
+
+    // Store cells for heat map toggle
+    currentCellsRef.current = cells;
+
+    // Don't show grid by default - user can toggle it on
+    if (gridLayerRef.current) {
+      gridLayerRef.current.remove();
+      gridLayerRef.current = null;
+    }
+
+    // Only show grid if already toggled on
+    if (showGrid) {
+      gridLayerRef.current = visualizeGridCells(map, cells);
+    }
+  };
 
   const clearPolygon = () => {
     if (polygon && map) {
@@ -137,9 +192,14 @@ const KeralMapAnalyzer = () => {
       if (chargingLayer) { chargingLayer.remove(); setChargingLayer(null); }
       if (gridLayer) { gridLayer.remove(); setGridLayer(null); }
       if (gridLayerRef.current) { gridLayerRef.current.remove(); gridLayerRef.current = null; }
+      if (heatMapLayerRef.current) { heatMapLayerRef.current.remove(); heatMapLayerRef.current = null; }
+      if (heatMapLegendRef.current) { heatMapLegendRef.current.remove(); heatMapLegendRef.current = null; }
+      currentCellsRef.current = null;
       setShowPetrol(false);
       setShowCharging(false);
       setShowGrid(false);
+      setShowHeatMap(false);
+      setShowDensityLayer(false);
     }
   };
 
@@ -154,99 +214,23 @@ const KeralMapAnalyzer = () => {
     a.click();
   };
 
-  const generateGridCellsLocal = (polygonCoords) => {
-    if (!polygonCoords || polygonCoords.length < 3) return [];
-
-    const lats = polygonCoords.map(p => p[0]);
-    const lngs = polygonCoords.map(p => p[1]);
-
-    const minLat = Math.min(...lats);
-    const maxLat = Math.max(...lats);
-    const minLng = Math.min(...lngs);
-    const maxLng = Math.max(...lngs);
-
-    const CELL_AREA = 50; // m²
-    const CELL_SIDE = Math.sqrt(CELL_AREA);
-    const METERS_PER_DEGREE_LAT = 111320;
-    const METERS_PER_DEGREE_LNG = 111320 * Math.cos(10.85 * Math.PI / 180);
-
-    const latStep = CELL_SIDE / METERS_PER_DEGREE_LAT;
-    const lngStep = CELL_SIDE / METERS_PER_DEGREE_LNG;
-
-    const cells = [];
-
-    for (let lat = minLat; lat <= maxLat; lat += latStep) {
-      for (let lng = minLng; lng <= maxLng; lng += lngStep) {
-        const cellCorners = [
-          [lat, lng],
-          [lat + latStep, lng],
-          [lat + latStep, lng + lngStep],
-          [lat, lng + lngStep]
-        ];
-
-        if (cellIntersectsPolygonLocal(cellCorners, polygonCoords)) {
-          cells.push({
-            centerLat: lat + latStep / 2,
-            centerLng: lng + lngStep / 2,
-            cost: 0
-          });
-        }
-      }
-    }
-
-    return cells;
-  };
-
-  const cellIntersectsPolygonLocal = (cellCorners, polygon) => {
-    for (const corner of cellCorners) {
-      if (pointInPolygonLocal(corner, polygon)) return true;
-    }
-
-    const lats = cellCorners.map(p => p[0]);
-    const lngs = cellCorners.map(p => p[1]);
-    const minLat = Math.min(...lats);
-    const maxLat = Math.max(...lats);
-    const minLng = Math.min(...lngs);
-    const maxLng = Math.max(...lngs);
-
-    for (const [plat, plng] of polygon) {
-      if (plat >= minLat && plat <= maxLat && plng >= minLng && plng <= maxLng) {
-        return true;
-      }
-    }
-
-    return false;
-  };
-
-  const pointInPolygonLocal = (point, vs) => {
-    const x = point[1], y = point[0];
-    let inside = false;
-    for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
-      const xi = vs[i][1], yi = vs[i][0];
-      const xj = vs[j][1], yj = vs[j][0];
-      const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi + 0.0) + xi);
-      if (intersect) inside = !inside;
-    }
-    return inside;
-  };
-
-  const handleToggleCharging = () => {
+  const handleToggleCharging = async () => {
     const next = !showCharging;
     setShowCharging(next);
     if (!next) {
       if (chargingLayer) { chargingLayer.remove(); setChargingLayer(null); }
     } else {
-      plotMarkers('charging');
+      await plotMarkersFromDB('charging');
     }
   };
 
-  const handleTogglePetrol = () => {
+  const handleTogglePetrol = async () => {
     const next = !showPetrol;
     setShowPetrol(next);
     if (!next) {
       if (petrolLayer) { petrolLayer.remove(); setPetrolLayer(null); }
     } else {
-      plotMarkers('petrol');
+      await plotMarkersFromDB('petrol');
     }
   };
 
@@ -254,13 +238,93 @@ const KeralMapAnalyzer = () => {
     const next = !showGrid;
     setShowGrid(next);
     if (!next) {
-      if (gridLayer) { gridLayer.remove(); setGridLayer(null); }
+      if (gridLayerRef.current) { gridLayerRef.current.remove(); gridLayerRef.current = null; }
     } else {
-      if (stats && currentPath.length >= 3) {
-        const cells = generateGridCellsLocal(currentPath);
-        const layer = visualizeGridCells(map, cells);
-        setGridLayer(layer);
+      if (currentCellsRef.current) {
+        gridLayerRef.current = visualizeGridCells(map, currentCellsRef.current);
+      } else if (stats && currentPath.length >= 3) {
+        const cells = generateGridCells(currentPath);
+        gridLayerRef.current = visualizeGridCells(map, cells);
       }
+    }
+  };
+
+  const handleToggleDensityLayer = async () => {
+    const next = !showDensityLayer;
+    setShowDensityLayer(next);
+
+    if (!currentPath || currentPath.length < 3) {
+      alert('Please draw and finish a polygon first');
+      setShowDensityLayer(false);
+      return;
+    }
+
+    // Recalculate costs with or without density layer
+    let cells = generateGridCells(currentPath);
+
+    // Always apply charging station proximity
+    const chargingStations = await fetchStationsFromDB(currentPath, 'charging');
+    const filteredStations = chargingStations.filter(station =>
+      pointInPolygon(station, currentPath)
+    );
+    cells = calculateChargingStationProximityCost(cells, filteredStations);
+
+    // Apply density cost if toggled on
+    if (next) {
+      const densityData = await fetchPopulationDensityData(currentPath);
+      console.log(`Toggling ON population density layer with ${densityData.length} zones`);
+      cells = calculatePopulationDensityCost(cells, densityData);
+    } else {
+      console.log('Toggling OFF population density layer');
+    }
+
+    // Update stored cells
+    currentCellsRef.current = cells;
+
+    // Update heat map if it's currently showing
+    if (showHeatMap && heatMapLayerRef.current) {
+      heatMapLayerRef.current.remove();
+      heatMapLayerRef.current = generateHeatMapLayer(map, cells);
+    }
+
+    // Update grid if it's currently showing
+    if (showGrid && gridLayerRef.current) {
+      gridLayerRef.current.remove();
+      gridLayerRef.current = visualizeGridCells(map, cells);
+    }
+  };
+
+  const handleToggleHeatMap = () => {
+    const next = !showHeatMap;
+    setShowHeatMap(next);
+
+    if (!next) {
+      // Hide heat map
+      if (heatMapLayerRef.current) {
+        heatMapLayerRef.current.remove();
+        heatMapLayerRef.current = null;
+      }
+      if (heatMapLegendRef.current) {
+        heatMapLegendRef.current.remove();
+        heatMapLegendRef.current = null;
+      }
+    } else {
+      // Show heat map
+      if (!currentCellsRef.current) {
+        alert('Please draw and finish a polygon first to generate the heat map');
+        setShowHeatMap(false);
+        return;
+      }
+
+      if (heatMapLayerRef.current) {
+        heatMapLayerRef.current.remove();
+      }
+      if (heatMapLegendRef.current) {
+        heatMapLegendRef.current.remove();
+      }
+
+      heatMapLayerRef.current = generateHeatMapLayer(map, currentCellsRef.current);
+      heatMapLegendRef.current = addHeatMapLegend(map);
     }
   };
 
@@ -286,13 +350,17 @@ const KeralMapAnalyzer = () => {
         onExport={exportData}
         showGrid={showGrid}
         onToggleGrid={handleToggleGrid}
+        showHeatMap={showHeatMap}
+        onToggleHeatMap={handleToggleHeatMap}
+        showDensityLayer={showDensityLayer}
+        onToggleDensityLayer={handleToggleDensityLayer}
       />
-      
+
       <div className="flex-1 flex overflow-hidden">
-        <MapView 
-          mapRef={mapRef} 
-          drawing={drawing} 
-          pointCount={currentPath.length} 
+        <MapView
+          mapRef={mapRef}
+          drawing={drawing}
+          pointCount={currentPath.length}
         />
         <StatsPanel stats={stats} />
       </div>
@@ -301,5 +369,3 @@ const KeralMapAnalyzer = () => {
 };
 
 export default KeralMapAnalyzer;
-
-
