@@ -155,7 +155,18 @@ const NavigationMenu = ({
           `)
           .addTo(map);
 
-        // Draw route line - more visible
+        // Add white border line for contrast (add first so it's behind)
+        const borderLine = L.polyline(
+          [[userLocation[0], userLocation[1]], [nearestStation.lat, nearestStation.lng]],
+          {
+            color: 'white',
+            weight: 10,
+            opacity: 0.4,
+            lineCap: 'round',
+          }
+        ).addTo(map);
+
+        // Draw route line - more visible (add second so it's on top)
         const routeLine = L.polyline(
           [[userLocation[0], userLocation[1]], [nearestStation.lat, nearestStation.lng]],
           {
@@ -166,20 +177,6 @@ const NavigationMenu = ({
             lineCap: 'round',
           }
         ).addTo(map);
-
-        // Add white border line for contrast
-        const borderLine = L.polyline(
-          [[userLocation[0], userLocation[1]], [nearestStation.lat, nearestStation.lng]],
-          {
-            color: 'white',
-            weight: 10,
-            opacity: 0.4,
-            lineCap: 'round',
-          }
-        ).addTo(map);
-        
-        // Bring route line to front
-        routeLine.bringToFront();
 
         // Fit bounds to show both markers with more padding
         const bounds = L.latLngBounds([
