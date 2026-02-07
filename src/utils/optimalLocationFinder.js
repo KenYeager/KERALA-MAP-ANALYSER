@@ -6,6 +6,133 @@ import L from 'leaflet';
 ---------------------------------------------------- */
 
 /**
+ * Calculate the outer boundary of a group of cells
+ * Returns an array of polyline coordinates representing the perimeter
+ */
+const calculateCellBoundary = (cells, cellSize = 0.0005) => {
+    if (!cells || cells.length === 0) return [];
+    
+    // Create a set of cell keys for O(1) lookup
+    const cellSet = new Set();
+    cells.forEach(cell => {
+        // Round to avoid floating point issues
+        const key = `${cell.lat.toFixed(6)},${cell.lng.toFixed(6)}`;
+        cellSet.add(key);
+    });
+    
+    // Helper to check if a cell exists
+    const hasCell = (lat, lng) => {
+        const key = `${lat.toFixed(6)},${lng.toFixed(6)}`;
+        return cellSet.has(key);
+    };
+    
+    // Collect all outer edges
+    // Each edge is represented as [startLat, startLng, endLat, endLng]
+    const edges = [];
+    const halfCell = cellSize / 2;
+    
+    cells.forEach(cell => {
+        const lat = cell.lat;
+        const lng = cell.lng;
+        
+        // Cell corners (counter-clockwise from bottom-left)
+        const minLat = lat - halfCell;
+        const maxLat = lat + halfCell;
+        const minLng = lng - halfCell;
+        const maxLng = lng + halfCell;
+        
+        // Check each edge - add if no adjacent cell on that side
+        // Top edge (only if no cell above)
+        if (!hasCell(lat + cellSize, lng)) {
+            edges.push([[maxLat, minLng], [maxLat, maxLng]]);
+        }
+        // Bottom edge (only if no cell below)
+        if (!hasCell(lat - cellSize, lng)) {
+            edges.push([[minLat, maxLng], [minLat, minLng]]);
+        }
+        // Left edge (only if no cell to the left)
+        if (!hasCell(lat, lng - cellSize)) {
+            edges.push([[maxLat, minLng], [minLat, minLng]]);
+        }
+        // Right edge (only if no cell to the right)
+        if (!hasCell(lat, lng + cellSize)) {
+            edges.push([[minLat, maxLng], [maxLat, maxLng]]);
+        }
+    });
+    
+    if (edges.length === 0) return [];
+    
+    // Connect edges into continuous paths
+    // Build adjacency map
+    const pointKey = (p) => `${p[0].toFixed(7)},${p[1].toFixed(7)}`;
+    const edgeMap = new Map();
+    
+    edges.forEach(edge => {
+        const startKey = pointKey(edge[0]);
+        const endKey = pointKey(edge[1]);
+        
+        if (!edgeMap.has(startKey)) edgeMap.set(startKey, []);
+        if (!edgeMap.has(endKey)) edgeMap.set(endKey, []);
+        
+        edgeMap.get(startKey).push({ to: edge[1], toKey: endKey, used: false, edge });
+        edgeMap.get(endKey).push({ to: edge[0], toKey: startKey, used: false, edge });
+    });
+    
+    // Trace closed loops
+    const paths = [];
+    const usedEdges = new Set();
+    
+    edges.forEach((startEdge, idx) => {
+        const edgeKey = `${pointKey(startEdge[0])}-${pointKey(startEdge[1])}`;
+        const reverseKey = `${pointKey(startEdge[1])}-${pointKey(startEdge[0])}`;
+        
+        if (usedEdges.has(edgeKey) || usedEdges.has(reverseKey)) return;
+        
+        const path = [startEdge[0], startEdge[1]];
+        usedEdges.add(edgeKey);
+        usedEdges.add(reverseKey);
+        
+        let currentPoint = startEdge[1];
+        let iterations = 0;
+        const maxIterations = edges.length * 2;
+        
+        while (iterations < maxIterations) {
+            iterations++;
+            const currentKey = pointKey(currentPoint);
+            const connections = edgeMap.get(currentKey) || [];
+            
+            let foundNext = false;
+            for (const conn of connections) {
+                const connEdgeKey = `${currentKey}-${conn.toKey}`;
+                const connReverseKey = `${conn.toKey}-${currentKey}`;
+                
+                if (!usedEdges.has(connEdgeKey) && !usedEdges.has(connReverseKey)) {
+                    usedEdges.add(connEdgeKey);
+                    usedEdges.add(connReverseKey);
+                    path.push(conn.to);
+                    currentPoint = conn.to;
+                    foundNext = true;
+                    break;
+                }
+            }
+            
+            if (!foundNext) break;
+            
+            // Check if we've closed the loop
+            if (pointKey(currentPoint) === pointKey(path[0])) {
+                break;
+            }
+        }
+        
+        if (path.length > 2) {
+            paths.push(path);
+        }
+    });
+    
+    return paths;
+};
+
+/**
  * Calculate distance between two points using Haversine formula
  */
 const calculateDistance = (lat1, lng1, lat2, lng2) => {
@@ -572,7 +699,51 @@ export const plotOptimalLocations = (map, locations, userPolygon = null, highlig
                              location.costRank === 2 ? '🥈' : 
                              location.costRank === 3 ? '🥉' : `#${location.costRank}`;
 
-            // Create Google Maps style destination marker at centroid
+            // ============ DRAW CELL BOUNDARIES ============
+            // Calculate and draw the outer boundary of combined cells
+            const boundaryPaths = calculateCellBoundary(validCells, cellSize);
+            
+            if (boundaryPaths.length > 0) {
+                // Draw each boundary path with thick black border
+                boundaryPaths.forEach(path => {
+                    if (path.length < 2) return;
+                    
+                    const polyline = L.polyline(path, {
+                        color: '#000000',      // Black border
+                        weight: 4,             // Thick line
+                        opacity: 1,
+                        fill: true,
+                        fillColor: colors.primary,
+                        fillOpacity: 0.3,
+                        dashArray: null        // Solid line
+                    });
+                    
+                    layer.addLayer(polyline);
+                });
+                
+                console.log(`  Drew ${boundaryPaths.length} boundary path(s) with ${boundaryPaths.reduce((s, p) => s + p.length, 0)} points`);
+            } else if (validCells.length === 1) {
+                // Single isolated cell - draw a rectangle border
+                const cell = validCells[0];
+                const halfCell = cellSize / 2;
+                const cellRect = L.rectangle(
+                    [[cell.lat - halfCell, cell.lng - halfCell], 
+                     [cell.lat + halfCell, cell.lng + halfCell]],
+                    {
+                        color: '#000000',      // Black border
+                        weight: 4,             // Thick line
+                        opacity: 1,
+                        fill: true,
+                        fillColor: colors.primary,
+                        fillOpacity: 0.3
+                    }
+                );
+                layer.addLayer(cellRect);
+                console.log(`  Drew single cell rectangle`);
+            }
+
+            // ============ PLACE MARKER AT CENTROID ============
+            // Create Google Maps style destination marker at centroid of the shape
             const markerIcon = L.divIcon({
                 className: 'optimal-location-pointer',
                 html: `<div style="
