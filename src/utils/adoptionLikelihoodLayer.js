@@ -75,7 +75,7 @@ export const fetchAdoptionLikelihoodData = async (bounds, includeBuffer = true) 
 /* ----------------------------------------------------
    CALCULATE ADOPTION LIKELIHOOD COST
    Uses radial decay from adoption centers
-   Formula based on population, ev_adoption_likelihood_score, and area metrics
+   Higher adoption likelihood = More favorable (-20 to 0 cost range)
 ---------------------------------------------------- */
 export const calculateAdoptionLikelihoodCost = (cells, adoptionData) => {
     if (!adoptionData || adoptionData.length === 0) {
@@ -83,27 +83,29 @@ export const calculateAdoptionLikelihoodCost = (cells, adoptionData) => {
         return cells;
     }
 
-    // ADOPTION WEIGHT CONSTANT - Adjust this to control cost impact
-    const ADOPTION_WEIGHT = -1;
+    // ADOPTION WEIGHT CONSTANT - Maps max adoption score to cost reduction
+    // Max adoption score ~80% should give ~-20 cost reduction
+    const MAX_COST_REDUCTION = 20;  // Maximum cost bonus for high adoption areas
+    const INFLUENCE_RADIUS_KM = 3;  // Fixed 3km influence radius
+    const INFLUENCE_RADIUS_M = INFLUENCE_RADIUS_KM * 1000;
 
     console.log('\n=== APPLYING ADOPTION LIKELIHOOD COST ===');
     console.log(`Processing ${cells.length} cells based on ${adoptionData.length} adoption zones`);
-    console.log(`Adoption weight constant: ${ADOPTION_WEIGHT}\n`);
+    console.log(`Influence radius: ${INFLUENCE_RADIUS_KM}km, Max cost reduction: ${MAX_COST_REDUCTION}\n`);
 
     // Display adoption centers
     console.log('=== ADOPTION LIKELIHOOD CENTERS ===');
-    console.table(adoptionData.map((zone, idx) => ({
+    console.table(adoptionData.slice(0, 10).map((zone, idx) => ({
         id: idx + 1,
-        latitude: zone.latitude.toFixed(6),
-        longitude: zone.longitude.toFixed(6),
-        population: zone.population,
-        ev_adoption_likelihood_score: zone.ev_adoption_likelihood_score,
-        per_capita_income: zone.per_capita_income,
-        area: zone.area
+        latitude: zone.latitude.toFixed(4),
+        longitude: zone.longitude.toFixed(4),
+        population: zone.population.toLocaleString(),
+        ev_score: zone.ev_adoption_likelihood_score.toFixed(1),
+        income: zone.per_capita_income.toLocaleString()
     })));
 
     cells.forEach((cell) => {
-        let totalWeightedAdoption = 0;
+        let totalWeightedScore = 0;
         let totalInfluenceWeight = 0;
 
         // Calculate influence from all nearby adoption zones (radial decay)
@@ -115,39 +117,33 @@ export const calculateAdoptionLikelihoodCost = (cells, adoptionData) => {
                 zone.longitude
             );
 
-            // Calculate area radius (assuming circular area)
-            const areaRadius = Math.sqrt(zone.area / Math.PI);
+            if (distance <= INFLUENCE_RADIUS_M) {
+                // Radial decay: influence decreases linearly with distance
+                const distanceInfluence = 1 - (distance / INFLUENCE_RADIUS_M);
 
-            // Influence radius = area radius + buffer
-            const influenceRadius = areaRadius + 500; // 500m buffer
+                // Use the ev_adoption_likelihood_score directly (already 0-100 scale)
+                const adoptionScore = zone.ev_adoption_likelihood_score;
 
-            if (distance <= influenceRadius) {
-                // Radial decay: influence decreases with distance from zone center
-                const distanceInfluence = Math.max(0, 1 - (distance / influenceRadius));
-
-                // Calculate adoption likelihood metric
-                // Higher population + higher ev_adoption_likelihood_score = higher likelihood
-                const adoptionMetric = zone.population * zone.ev_adoption_likelihood_score;
-
-                totalWeightedAdoption += adoptionMetric * distanceInfluence;
+                totalWeightedScore += adoptionScore * distanceInfluence;
                 totalInfluenceWeight += distanceInfluence;
             }
         });
 
         if (totalInfluenceWeight > 0) {
-            const avgAdoptionMetric = totalWeightedAdoption / totalInfluenceWeight;
+            // Weighted average of adoption scores (0-100 scale)
+            const avgAdoptionScore = totalWeightedScore / totalInfluenceWeight;
 
-            // Store adoption metric for reference
-            cell.adoptionLikelihood = avgAdoptionMetric;
+            // Store normalized adoption score for reference
+            cell.adoptionLikelihood = avgAdoptionScore;
 
             // Calculate cost: higher adoption = lower cost (more favorable)
-            // Negative cost = favorable
-            const adoptionCost = Math.round(avgAdoptionMetric * ADOPTION_WEIGHT);
+            // Score 0-100 maps to cost 0 to -MAX_COST_REDUCTION
+            const adoptionCost = -Math.round((avgAdoptionScore / 100) * MAX_COST_REDUCTION);
 
             cell.cost += adoptionCost;
             cell.adoptionCostAdjustment = adoptionCost;
         } else {
-            // No adoption zones nearby
+            // No adoption zones nearby - neutral
             cell.adoptionLikelihood = 0;
             cell.adoptionCostAdjustment = 0;
         }
@@ -170,10 +166,10 @@ export const calculateAdoptionLikelihoodCost = (cells, adoptionData) => {
     console.log(`Cells in polygon: ${cellsInPolygon.length}`);
     console.log(`Cells with adoption data: ${cellsWithAdoption.length}`);
     console.log(`Cells without adoption data: ${cellsInPolygon.length - cellsWithAdoption.length}`);
-    console.log(`Adoption likelihood statistics:`);
-    console.log(`  - Min likelihood: ${minAdoption.toExponential(3)}`);
-    console.log(`  - Max likelihood: ${maxAdoption.toExponential(3)}`);
-    console.log(`  - Average likelihood: ${avgAdoption.toExponential(3)}`);
+    console.log(`Adoption score statistics (0-100 scale):`);
+    console.log(`  - Min score: ${minAdoption.toFixed(1)}`);
+    console.log(`  - Max score: ${maxAdoption.toFixed(1)}`);
+    console.log(`  - Average score: ${avgAdoption.toFixed(1)}`);
     console.log('');
 
     // Display sample of cells with best adoption likelihood
@@ -181,17 +177,19 @@ export const calculateAdoptionLikelihoodCost = (cells, adoptionData) => {
         .filter(c => c.adoptionLikelihood > 0)
         .slice()
         .sort((a, b) => b.adoptionLikelihood - a.adoptionLikelihood);
-    const sampleSize = Math.min(20, sortedByAdoption.length);
+    const sampleSize = Math.min(10, sortedByAdoption.length);
 
-    console.log(`=== TOP ${sampleSize} CELLS BY ADOPTION LIKELIHOOD ===`);
-    console.table(sortedByAdoption.slice(0, sampleSize).map((cell, idx) => ({
-        rank: idx + 1,
-        centerLat: cell.centerLat.toFixed(6),
-        centerLng: cell.centerLng.toFixed(6),
-        adoptionLikelihood: cell.adoptionLikelihood.toExponential(3),
-        costAdjustment: cell.adoptionCostAdjustment,
-        totalCost: cell.cost
-    })));
+    if (sampleSize > 0) {
+        console.log(`=== TOP ${sampleSize} CELLS BY ADOPTION SCORE ===`);
+        console.table(sortedByAdoption.slice(0, sampleSize).map((cell, idx) => ({
+            rank: idx + 1,
+            lat: cell.centerLat.toFixed(4),
+            lng: cell.centerLng.toFixed(4),
+            adoptionScore: cell.adoptionLikelihood.toFixed(1),
+            costAdj: cell.adoptionCostAdjustment,
+            totalCost: cell.cost
+        })));
+    }
 
     console.log('\n');
     return cells;
@@ -210,11 +208,11 @@ export const plotAdoptionCentersOnMap = (map, adoptionData) => {
     const layer = L.layerGroup();
 
     adoptionData.forEach((zone, i) => {
-        // Size based on adoption rate
-        const radius = 4 + (zone.ev_adoption_likelihood_score * 10);
+        // Size based on adoption score (68-80 range typically)
+        const radius = 6 + ((zone.ev_adoption_likelihood_score - 60) * 0.3);
 
         const marker = L.circleMarker([zone.latitude, zone.longitude], {
-            radius: radius,
+            radius: Math.max(4, Math.min(12, radius)), // Clamp between 4-12
             color: '#f59e0b', // Amber color for adoption zones
             fillColor: '#fbbf24',
             fillOpacity: 0.8,
@@ -224,11 +222,9 @@ export const plotAdoptionCentersOnMap = (map, adoptionData) => {
         marker.bindPopup(
             `<strong>Adoption Zone ${i + 1}</strong><br/>` +
             `Population: ${zone.population.toLocaleString()}<br/>` +
-            `EV Adoption Likelihood: ${(zone.ev_adoption_likelihood_score * 100).toFixed(2)}%<br/>` +
+            `EV Adoption Score: ${zone.ev_adoption_likelihood_score.toFixed(1)}/100<br/>` +
             `Per Capita Income: ₹${zone.per_capita_income.toLocaleString()}<br/>` +
-            `Area: ${zone.area.toFixed(2)} km²<br/>` +
-            `Lat: ${zone.latitude.toFixed(6)}<br/>` +
-            `Lng: ${zone.longitude.toFixed(6)}`
+            `Lat: ${zone.latitude.toFixed(4)}, Lng: ${zone.longitude.toFixed(4)}`
         );
 
         layer.addLayer(marker);
