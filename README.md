@@ -31,6 +31,7 @@
 - [What is This Project?](#-what-is-this-project)
 - [Why is This Important?](#-why-is-this-important)
 - [Key Features](#-key-features)
+- [Screenshots](#-screenshots)
 - [Tech Stack](#-tech-stack)
 - [Quick Start](#-quick-start)
 - [Project Structure](#-project-structure)
@@ -129,7 +130,68 @@ This tool transforms **guesswork into science** by:
 
 ---
 
-## 🛠️ Tech Stack
+## � Screenshots
+
+### 🗺️ EV & Petrol Station Map
+View all **600+ EV charging stations** (green markers) and **2,503 petrol stations** (red markers) across Kerala at a glance. This visualization instantly reveals the infrastructure gap — where EVs can charge vs. where fossil fuel infrastructure dominates.
+
+<div align="center">
+<img src="public/readme_assets/ev&petrol.jpg" alt="EV and Petrol Stations Map" width="90%"/>
+</div>
+
+---
+
+### 📊 Area Analysis with Grid View
+Draw any custom polygon on the map to trigger **instant area analysis**. The Grid View divides your selected region into analyzable cells while the **Stats Panel** displays key metrics — area size, charging stations count, EV vehicles estimate, EV penetration rate, and vehicle distribution.
+
+<div align="center">
+<img src="public/readme_assets/grids.png" alt="Grid View with Area Analysis" width="90%"/>
+</div>
+
+---
+
+### 🔥 Heat Map Visualization
+Toggle to **Heat Map View** to see composite favorability scores as a color gradient:
+- 🟢 **Green (100%)** — Highly favorable for new EV stations
+- 🟡 **Yellow (0%)** — Neutral zones
+- 🔴 **Red (-100%)** — Unfavorable (already saturated or low demand)
+
+The algorithm considers **4 weighted factors**: charging proximity, population density, substation distance, and EV adoption likelihood.
+
+<div align="center">
+<img src="public/readme_assets/poly_info.jpg" alt="Heat Map with Favorability Legend" width="90%"/>
+</div>
+
+---
+
+### 🏆 Optimal Location Finder
+Click **"Find Optimal"** to compute the best locations for new charging stations. The system uses a **divide-and-conquer algorithm** to rank locations by cost score:
+- **Rank 1** (Green) — Best locations (lowest cost)
+- **Rank 2** (Blue) — Second-best alternatives  
+- **Rank 3** (Purple) — Third-tier options
+
+Each rank shows how many sub-locations share that score, enabling planners to choose from multiple equally-good sites.
+
+<div align="center">
+<img src="public/readme_assets/optimal.jpg" alt="Optimal Location Ranking" width="90%"/>
+</div>
+
+---
+
+### 🧭 Navigation & Routing
+For EV owners: Click **"Navigate"** to find the nearest charging station. The modal displays:
+- **Embedded mini-map** with your route
+- **Station name** and operator
+- **Distance** to destination
+- Option to **"Find Another"** if preferred
+
+<div align="center">
+<img src="public/readme_assets/route.jpg" alt="Navigation Routing Modal" width="60%"/>
+</div>
+
+---
+
+## �🛠️ Tech Stack
 
 <table>
 <tr>
