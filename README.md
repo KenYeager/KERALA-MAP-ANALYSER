@@ -403,24 +403,195 @@ TOTAL_COST = (Proximity × 0.30) + (Density × 0.25) + (Substation × 0.25) + (A
 
 ### Database Schema
 
+The SQLite database (`cleaning/source.db`) contains **6 tables** with Kerala infrastructure data:
+
 ```sql
--- source.db contains 5 tables:
+-- ═══════════════════════════════════════════════════════════════════
+-- TABLE 1: ev_stations (574 records)
+-- Source: Open Charge Map API (filtered for Kerala)
+-- Used by: Charging Proximity Cost Layer (30% weight)
+-- ═══════════════════════════════════════════════════════════════════
+ev_stations
+├── id              INTEGER PRIMARY KEY
+├── latitude        REAL        -- GPS latitude
+├── longitude       REAL        -- GPS longitude
+├── status_code     INTEGER     -- Station operational status
+├── access_code     INTEGER     -- Public/Private access
+├── name            TEXT        -- Station name
+├── operator        TEXT        -- Operating company
+├── usage_type      TEXT        -- Type of usage
+├── power_kw        REAL        -- Charging power in kW
+└── connectors      TEXT        -- Connector types available
 
-ev_stations (600+ records)
-├── lat, lng, name, operator, brand
+-- ═══════════════════════════════════════════════════════════════════
+-- TABLE 2: petrol_stations (2,503 records)
+-- Source: OpenStreetMap (Kerala bounding box)
+-- Used by: Navigation feature (Find Nearest Station)
+-- ═══════════════════════════════════════════════════════════════════
+petrol_stations
+├── id              INTEGER PRIMARY KEY
+├── latitude        REAL        -- GPS latitude
+├── longitude       REAL        -- GPS longitude
+├── name            TEXT        -- Station name
+├── operator        TEXT        -- Operating company
+├── brand           TEXT        -- Fuel brand (IOCL, BPCL, etc.)
+├── city            TEXT        -- City/town location
+├── phone           TEXT        -- Contact number
+└── website         TEXT        -- Website URL
 
-petrol_stations (2,503 records)
-├── lat, lng, name, operator, brand, city
+-- ═══════════════════════════════════════════════════════════════════
+-- TABLE 3: population_density (73 records)
+-- Source: Kerala Local Body Indicators (Census)
+-- Used by: Population Density Cost Layer (25% weight)
+-- ═══════════════════════════════════════════════════════════════════
+population_density
+├── latitude        REAL        -- Zone centroid latitude
+├── longitude       REAL        -- Zone centroid longitude
+├── population      INTEGER     -- Total population in zone
+├── density_per_m2  REAL        -- People per square meter
+├── per_capita_income REAL      -- Average income (₹)
+└── area            REAL        -- Zone area in sq km
 
-population_density (73 zones)
-├── lat, lng, population, density_per_m2, per_capita_income
+-- ═══════════════════════════════════════════════════════════════════
+-- TABLE 4: adoption_likelihood (73 records)
+-- Source: Derived from census + vehicle registration data
+-- Used by: EV Adoption Likelihood Cost Layer (20% weight)
+-- ═══════════════════════════════════════════════════════════════════
+adoption_likelihood
+├── latitude        REAL        -- Zone centroid latitude
+├── longitude       REAL        -- Zone centroid longitude
+├── population      INTEGER     -- Total population
+├── ev_adoption_likelihood_score REAL  -- 0-100 score (higher = more likely to adopt EV)
+├── per_capita_income REAL      -- Average income (₹)
+└── area            REAL        -- Zone area in sq km
 
-adoption_likelihood (73 zones)
-├── lat, lng, population, ev_adoption_likelihood_score
+-- ═══════════════════════════════════════════════════════════════════
+-- TABLE 5: SUBSTATIONS (116 records)
+-- Source: Kerala State Electricity Board (KSEB)
+-- Used by: Substation Proximity Cost Layer (25% weight)
+-- ═══════════════════════════════════════════════════════════════════
+SUBSTATIONS
+├── Latitude        REAL        -- GPS latitude
+├── Longitude       REAL        -- GPS longitude
+└── Voltage_kV      REAL        -- Voltage capacity in kV
 
-substations (power grid data)
-├── lat, lng, voltage, capacity
+-- ═══════════════════════════════════════════════════════════════════
+-- TABLE 6: EV_VEHICLES_PER_DISTRICT (67 records)
+-- Source: Kerala Motor Vehicle Department
+-- Used by: Stats Panel (Vehicle Distribution Card)
+-- ═══════════════════════════════════════════════════════════════════
+EV_VEHICLES_PER_DISTRICT
+├── district        TEXT        -- District name
+├── ev_count        INTEGER     -- Number of registered EVs
+├── latitude        REAL        -- District centroid lat
+└── longitude       REAL        -- District centroid lng
 ```
+
+---
+
+## 🗂️ Layer Calculations & Cost Factors
+
+The algorithm evaluates each grid cell using **4 weighted cost factors**. Lower total cost = more favorable for new EV charging station.
+
+### Cost Formula
+
+```
+TOTAL_COST = (Proximity × 0.30) + (Density × 0.25) + (Substation × 0.25) + (Adoption × 0.20)
+```
+
+### Layer 1: Charging Station Proximity (30% Weight)
+
+**Purpose:** PENALIZE cells near existing chargers to avoid clustering
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| `MAX_PENALTY_DISTANCE` | 2.0 km | Beyond this, cells get negative cost (bonus) |
+| `MAX_PENALTY_COST` | +100 | Cost at station location (worst) |
+| `NEGATIVE_BONUS_CAP` | -50 | Maximum bonus for distant cells |
+
+**Algorithm:**
+```
+if distance ≤ 2km:
+    penalty = (1 - (distance/2)²) × 100    // Quadratic decay
+else:
+    bonus = min(50, (distance - 2) × 10)   // Linear bonus, capped at -50
+```
+
+**Database Fields Used:** `ev_stations.latitude`, `ev_stations.longitude`
+
+---
+
+### Layer 2: Population Density (25% Weight)
+
+**Purpose:** FAVOR high-density areas (more potential EV users)
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| `WEIGHT` | -10,000 | Multiplier for density_per_m2 |
+| `INFLUENCE_RADIUS` | Based on zone area | √(area/π) in km |
+
+**Algorithm:**
+```
+For each density zone within influence radius:
+    contribution = density_per_m2 × WEIGHT × decay_factor
+    cell.cost += contribution
+```
+
+**Database Fields Used:** `population_density.latitude`, `population_density.longitude`, `population_density.density_per_m2`, `population_density.area`
+
+---
+
+### Layer 3: Substation Proximity (25% Weight)
+
+**Purpose:** FAVOR cells near power substations (cheaper grid connection)
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| `MAX_BENEFIT_DISTANCE` | 5.0 km | Influence radius |
+| `MAX_BENEFIT_COST` | -50 | Cost reduction at substation (best) |
+
+**Algorithm:**
+```
+if distance ≤ 5km:
+    benefit = (1 - distance/5) × (-50) × voltage_factor
+    cell.cost += benefit
+```
+
+Higher voltage substations provide stronger cost benefits.
+
+**Database Fields Used:** `SUBSTATIONS.Latitude`, `SUBSTATIONS.Longitude`, `SUBSTATIONS.Voltage_kV`
+
+---
+
+### Layer 4: EV Adoption Likelihood (20% Weight)
+
+**Purpose:** FAVOR areas with high EV adoption propensity
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| `INFLUENCE_RADIUS_KM` | 3.0 km | Fixed influence radius |
+| `MAX_COST_REDUCTION` | -20 | Maximum bonus for high adoption areas |
+
+**Algorithm:**
+```
+For each adoption zone within 3km:
+    score = ev_adoption_likelihood_score (0-100 scale)
+    decay = 1 - (distance / 3000)²
+    cost_reduction = (score / 100) × (-20) × decay
+    cell.cost += cost_reduction
+```
+
+**Database Fields Used:** `adoption_likelihood.latitude`, `adoption_likelihood.longitude`, `adoption_likelihood.ev_adoption_likelihood_score`
+
+---
+
+### Cost Interpretation
+
+| Cost Range | Color | Meaning |
+|------------|-------|---------|
+| ≤ -33 | 🟢 GREEN | Highly favorable - optimal for new station |
+| -33 to +33 | 🟡 YELLOW | Neutral - acceptable but not ideal |
+| > +33 | 🔴 RED | Unfavorable - too close to existing infrastructure |
 
 ---
 
